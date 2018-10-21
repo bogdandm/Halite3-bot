@@ -67,19 +67,15 @@ class Position:
         self.x = x
         self.y = y
 
-    def directional_offset(self, direction):
-        """
-        Returns the position considering a Direction cardinal tuple
-        :param direction: the direction cardinal tuple
-        :return: a new position moved in that direction
-        """
-        return self + Position(*direction)
-
-    def get_surrounding_cardinals(self):
+    def get_surrounding_cardinals(self, radius=1, center=False):
         """
         :return: Returns a list of all positions around this specific position in each cardinal direction
         """
-        return [self.directional_offset(current_direction) for current_direction in Direction.All]
+        for x in range(self.x - radius, self.x + radius):
+            for y in range(self.y - radius, self.y + radius):
+                if x == self.x and y == self.y and not center:
+                    continue
+                yield x, y
 
     def __add__(self, other: Union['Position', Tuple[int, int]]):
         if isinstance(other, Position):
@@ -119,9 +115,7 @@ class Position:
         return not self.__eq__(other)
 
     def __repr__(self):
-        return "{}({}, {})".format(self.__class__.__name__,
-                                   self.x,
-                                   self.y)
+        return f"{self.__class__.__name__}({self.x}, {self.y})"
 
     def __mul__(self, other) -> 'Position':
         return Position(self.x * other, self.y * other)

@@ -12,3 +12,7 @@ class disable_print:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout = self.oldstdout
+
+
+def mul_tuple(t: tuple, k: float, integer=False) -> tuple:
+    return tuple(int(k * x) if integer else k * x for x in t)

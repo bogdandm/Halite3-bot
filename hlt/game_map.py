@@ -250,7 +250,7 @@ class GameMap:
         # does that
         moves = list(self.get_unsafe_moves(ship.position, destination))
         for direction in chain(moves, *map(Direction.nearby, moves)):
-            target_pos = ship.position.directional_offset(direction)
+            target_pos = ship.position + direction
             if not self[target_pos].is_occupied:
                 self[target_pos].mark_unsafe(ship)
                 self[ship.position].mark_safe()
