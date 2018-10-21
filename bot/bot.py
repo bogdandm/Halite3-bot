@@ -48,7 +48,7 @@ class Bot:
     def run(self):
         self.game.ready("BogdanDm")
         logging.info("Player ID: {}.".format(self.game.my_id))
-        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 40) / (64 - 40)))
+        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.5
         while True:
