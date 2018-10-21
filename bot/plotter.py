@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Tuple
 
+from bot.bot import Bot
 from hlt import Position, constants
 from hlt.entity import Ship
 from .const import BLACK, CELL_SIZE, DEFAULT_SPEEDUP, FPS, GREY, PLAYERS, WHITE
@@ -122,14 +123,14 @@ class Plotter:
                         (p.x, p.y),
                         round(CELL_SIZE / 2.5 * (ship.halite_amount / constants.MAX_HALITE))
                     )
-                if ship.target:
+                if self.bot.ships_targets.get(ship, None):
                     pygame.draw.lines(
                         self.screen,
                         mul_tuple(color, .7, integer=True),
                         False,
                         (
                             tuple(ship.position * CELL_SIZE + CELL_SIZE // 2),
-                            tuple(ship.target * CELL_SIZE + CELL_SIZE // 2)
+                            tuple(self.bot.ships_targets[ship] * CELL_SIZE + CELL_SIZE // 2)
                         ),
                         1
                     )

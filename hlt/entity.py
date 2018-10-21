@@ -57,7 +57,6 @@ class Ship(Entity):
     def __init__(self, owner, id, position, halite_amount):
         super().__init__(owner, id, position)
         self.halite_amount = halite_amount
-        self.target = None
 
     @property
     def is_full(self):
@@ -93,7 +92,10 @@ class Ship(Entity):
         return ship_id, Ship(player_id, ship_id, Position(x_position, y_position), halite)
 
     def __repr__(self):
-        return "{}(id={}, {}, cargo={} halite)".format(self.__class__.__name__,
-                                                       self.id,
-                                                       self.position,
-                                                       self.halite_amount)
+        return f"{self.__class__.__name__}(id={self.id}, {self.position}, cargo={self.halite_amount} halite)"
+
+    def __hash__(self):
+        return hash(self.id) ^ id(type(self))
+
+    def __eq__(self, other):
+        return self.id == other.id

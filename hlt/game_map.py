@@ -238,6 +238,17 @@ class GameMap:
         if distance.y != 0:
             yield y_cardinality if distance.y < (self.height / 2) else Direction.invert(y_cardinality)
 
+    def update_ship_position(self, ship: 'Ship', direction: tuple):
+        self[ship.position + direction].mark_unsafe(ship)
+        self[ship.position].mark_safe()
+        return ship.move(direction)
+
+    def swap_ships(self, ship1: 'Ship', ship2: 'Ship'):
+        self[ship1.position].mark_unsafe(ship2)
+        self[ship2.position].mark_unsafe(ship1)
+        yield ship1.move(tuple(ship2.position - ship1.position))
+        yield ship2.move(tuple(ship1.position - ship2.position))
+
     def naive_navigate(self, ship, destination):
         """
         Returns a singular safe move towards the destination.
@@ -246,14 +257,10 @@ class GameMap:
         :param destination: Ending position
         :return: A direction.
         """
-        # No need to normalize destination, since get_unsafe_moves
-        # does that
         moves = list(self.get_unsafe_moves(ship.position, destination))
         for direction in chain(moves, *map(Direction.nearby, moves)):
-            target_pos = ship.position + direction
-            if not self[target_pos].is_occupied:
-                self[target_pos].mark_unsafe(ship)
-                self[ship.position].mark_safe()
+            if not self[ship.position + direction].is_occupied:
+                self.update_ship_position(ship, direction)
                 return direction
 
         return Direction.Still
