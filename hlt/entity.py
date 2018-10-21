@@ -57,6 +57,7 @@ class Ship(Entity):
     def __init__(self, owner, id, position, halite_amount):
         super().__init__(owner, id, position)
         self.halite_amount = halite_amount
+        self.target = None
 
     @property
     def is_full(self):
@@ -72,9 +73,7 @@ class Ship(Entity):
         Return a move to move this ship in a direction without
         checking for collisions.
         """
-        raw_direction = direction
-        if not isinstance(direction, str) or direction not in "nsewo":
-            raw_direction = Direction.convert(direction)
+        raw_direction = Direction.convert(direction) if isinstance(direction, tuple) else direction
         return "{} {} {}".format(commands.MOVE, self.id, raw_direction)
 
     def stay_still(self):

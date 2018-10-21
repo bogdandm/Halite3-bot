@@ -125,6 +125,14 @@ class MapCell:
         """
         self.ship = ship
 
+    def mark_safe(self):
+        """
+        Mark this cell as safe for navigation.
+
+        Use in conjunction with GameMap.naive_navigate.
+        """
+        self.ship = None
+
     def __eq__(self, other):
         return self.position == other.position
 
@@ -245,6 +253,7 @@ class GameMap:
             target_pos = ship.position.directional_offset(direction)
             if not self[target_pos].is_occupied:
                 self[target_pos].mark_unsafe(ship)
+                self[ship.position].mark_safe()
                 return direction
 
         return Direction.Still

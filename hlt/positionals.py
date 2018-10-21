@@ -84,14 +84,18 @@ class Position:
     def __add__(self, other: Union['Position', Tuple[int, int]]):
         if isinstance(other, Position):
             return Position(self.x + other.x, self.y + other.y)
-        else:
+        elif isinstance(other, tuple):
             return Position(self.x + other[0], self.y + other[1])
+        else:
+            return Position(self.x + other, self.y + other)
 
     def __sub__(self, other: Union['Position', Tuple[int, int]]):
         if isinstance(other, Position):
             return Position(self.x - other.x, self.y - other.y)
-        else:
+        elif isinstance(other, tuple):
             return Position(self.x - other[0], self.y - other[1])
+        else:
+            return Position(self.x - other, self.y - other)
 
     def __iadd__(self, other: Union['Position', Tuple[int, int]]):
         is_pos = isinstance(other, Position)

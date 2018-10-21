@@ -5,18 +5,20 @@ import logging
 import operator
 import os
 import sys
-from collections import defaultdict
 from typing import Tuple
 
 from hlt.entity import Ship
 from utils import disable_print
 
 with disable_print():
-    import pygame
-    from pygame import display
-    from pygame.sysfont import SysFont
+    try:
+        import pygame
+        from pygame import display
+        from pygame.sysfont import SysFont
 
-    os.environ['SDL_VIDEO_WINDOW_POS'] = "10,40"
+        os.environ['SDL_VIDEO_WINDOW_POS'] = "10,40"
+    except ImportError:
+        pass
 
 import hlt
 from hlt import constants
@@ -28,10 +30,14 @@ DEFAULT_SPEEDUP = 1
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
+GREY = (150, 150, 150)
 PLAYERS = [
     (0, 170, 0),
     (170, 0, 0)
 ]
+
+V2 = "--v2" in sys.argv
+LOCAL = "--local" in sys.argv
 
 
 def cord2screen(*args):
@@ -67,6 +73,7 @@ class Plotter:
         pygame.init()
         self.win_size = (bot.game.map.width * CELL_SIZE, bot.game.map.height * CELL_SIZE)
         self.update_display_size()
+        pygame.mouse.set_cursor(*pygame.cursors.tri_right)
         self.font = SysFont("vcrosdmono", 16)
         self.clock = pygame.time.Clock()
         self.speed_up = DEFAULT_SPEEDUP
@@ -94,8 +101,14 @@ class Plotter:
             self.draw_selected()
         self.draw_bases()
         self.draw_ships()
+
         label = self.font.render(self.info, 0, (255, 0, 0))
         self.screen.blit(label, (0, 0))
+        mouse = pygame.mouse.get_pos()
+        pos = mul_tuple(mouse, 1 / CELL_SIZE, integer=True)
+        halite_hover = self.font.render(str(self.bot.game.map[pos].halite_amount), 0, GREY)
+        self.screen.blit(halite_hover, mouse)
+
         display.update()
         return not self.pause
 
@@ -103,7 +116,7 @@ class Plotter:
         for cell in self.bot.game.map:
             pygame.draw.rect(
                 self.screen,
-                mul_tuple((255, 255, 255), cell.halite_amount / constants.MAX_HALITE, integer=True),
+                mul_tuple((255, 255, 255), min(cell.halite_amount / constants.MAX_HALITE, 1), integer=True),
                 pos2rect(cell.position)
             )
 
@@ -133,13 +146,24 @@ class Plotter:
                     (p.x, p.y),
                     round(CELL_SIZE / 2.5)
                 )
-                self.screen.blit(self.font.render(str(ship.id), 0, [150] * 3), (p.x, p.y))
+                self.screen.blit(self.font.render(str(ship.id), 0, GREY), (p.x, p.y))
                 if ship.halite_amount:
                     pygame.draw.circle(
                         self.screen,
                         WHITE,
                         (p.x, p.y),
                         round(CELL_SIZE / 2.5 * (ship.halite_amount / constants.MAX_HALITE))
+                    )
+                if ship.target:
+                    pygame.draw.lines(
+                        self.screen,
+                        mul_tuple(color, .7, integer=True),
+                        False,
+                        (
+                            tuple(ship.position * CELL_SIZE + CELL_SIZE // 2),
+                            tuple(ship.target * CELL_SIZE + CELL_SIZE // 2)
+                        ),
+                        1
                     )
 
     def draw_bases(self):
@@ -184,13 +208,20 @@ class Plotter:
     @property
     def info(self):
         return f"{self.bot.game.turn_number}/{constants.MAX_TURNS} X{self.speed_up:.0f} |" \
-               f" G: {self.bot.game.players[0].halite_amount:>5d} | " \
-               f" R: {self.bot.game.players[1].halite_amount:>5d}"
+               f" G: {len(self.bot.game.players[0].get_ships()):>2d} {self.bot.game.players[0].halite_amount:>5d} | " \
+               f" R: {len(self.bot.game.players[1].get_ships()):>2d} {self.bot.game.players[1].halite_amount:>5d}" \
+               + (f"\n selected: #{self.selected.id} {self.selected.halite_amount / constants.MAX_HALITE:.0%}"
+                  if self.selected else "")
 
 
 class Bot:
-    def __init__(self, ship_fill_k=.75):
+    def __init__(
+            self,
+            ship_fill_k=.75,
+            distance_penalty_k=1.3
+    ):
         self.ship_fill_k = ship_fill_k
+        self.distance_penalty_k = distance_penalty_k
 
         self.game = hlt.Game()
         self.callbacks = []
@@ -215,63 +246,64 @@ class Bot:
         gmap = self.game.map
         home = self.game.me.shipyard.position
 
-        ships_pos = [ship.position for ship in me.get_ships()]
-        ship_mask = defaultdict(lambda: 1)
-        for pos in ships_pos:
-            ship_mask[pos] /= 4
-            for dir in pos.get_surrounding_cardinals():
-                ship_mask[dir] /= 2
-
         for ship in me.get_ships():
             if ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
-                logging.info(f"Ship#{ship.id} moving to home")
+                logging.info(f"Ship#{ship.id} moving home")
+                ship.target = home
                 yield ship.move(self.game.map.naive_navigate(ship, home))
 
             else:
                 if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
+                    ship.target = None
                     yield ship.stay_still()
                     continue
 
                 position = None
-                for radius in (*range(1, 5), None):
-                    surrounding = {}
-                    if radius:
-                        field = get_surrounding_offsets(ship.position, 2, center=True)
-                    else:
-                        field = map(operator.attrgetter('position'), gmap)
-                    for coord in field:
-                        if (gmap[coord].ship is None or gmap[coord].ship is ship):
-                            surrounding[Position(*coord)] = gmap[coord].halite_amount
-                    for coord in surrounding:
-                        surrounding[coord] *= ship_mask[coord]
-                        surrounding[coord] /= (gmap.calculate_distance(ship.position, coord) + 1) ** 2
+                radius = 8 if LOCAL else None
+                surrounding = {}
+                if radius:
+                    field = get_surrounding_offsets(ship.position, radius, center=True)
+                else:
+                    field = map(operator.attrgetter('position'), gmap)
+                for coord in field:
+                    if (gmap[coord].ship is None or gmap[coord].ship is ship):
+                        surrounding[Position(*coord)] = gmap[coord].halite_amount
+                for coord in surrounding:
+                    # surrounding[coord] /= 1 + 1 / constants.MOVE_COST_RATIO
+                    surrounding[coord] /= (gmap.calculate_distance(ship.position, coord) + 1) ** self.distance_penalty_k
 
-                    if surrounding:
-                        max_halite: Tuple[Position, int] = max(surrounding.items(), key=operator.itemgetter(1))
-                        if max_halite[1] > 0:
-                            position = max_halite[0]
-                            break
+                if surrounding:
+                    max_halite: Tuple[Position, int] = max(surrounding.items(), key=operator.itemgetter(1))
+                    if max_halite[1] > 0.1:
+                        position = max_halite[0]
 
                 self.debug_maps[ship.id] = surrounding
 
                 if position:
                     if position == ship.position:
                         logging.info(f"Ship#{ship.id} collecting halite")
+                        ship.target = None
                         yield ship.stay_still()
                     else:
                         logging.info(f"Ship#{ship.id} {ship.position} moving towards {position}")
+                        ship.target = position
                         yield ship.move(self.game.map.naive_navigate(ship, position))
                 else:
                     logging.info(f"Ship#{ship.id} does not found good halite deposit")
+                    ship.target = None
                     yield ship.stay_still()
 
             # else:
             #     logging.info(f"Ship#{ship.id} collecting halite")
             #     yield ship.stay_still()
 
-        if self.game.turn_number <= constants.MAX_TURNS - 50 and me.halite_amount >= constants.SHIP_COST:
+        if self.game.turn_number <= constants.MAX_TURNS - 100 and me.halite_amount >= constants.SHIP_COST:
             if not gmap[me.shipyard].is_occupied:
-                yield me.shipyard.spawn()
+                for pos in gmap[me.shipyard].position.get_surrounding_cardinals():
+                    if gmap[pos].is_occupied:
+                        break
+                else:
+                    yield me.shipyard.spawn()
 
 
 bot = Bot()
