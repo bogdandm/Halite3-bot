@@ -108,10 +108,11 @@ class Plotter:
             color = PLAYERS[n]
             for ship in player.get_ships():
                 # noinspection PyTypeChecker
+                is_selected = self.selected is None or self.selected.id == ship.id
                 p = ship.position * CELL_SIZE + (CELL_SIZE // 2, CELL_SIZE // 2)
                 pygame.draw.circle(
                     self.screen,
-                    color,
+                    mul_tuple(color, 1.2 if is_selected else .1, integer=True),
                     (p.x, p.y),
                     round(CELL_SIZE / 2.5)
                 )
@@ -119,14 +120,14 @@ class Plotter:
                 if ship.halite_amount:
                     pygame.draw.circle(
                         self.screen,
-                        WHITE,
+                        mul_tuple(WHITE, 1 if is_selected else .1, integer=True),
                         (p.x, p.y),
                         round(CELL_SIZE / 2.5 * (ship.halite_amount / constants.MAX_HALITE))
                     )
-                if self.bot.ships_targets.get(ship, None):
+                if is_selected and self.bot.ships_targets.get(ship, None):
                     pygame.draw.lines(
                         self.screen,
-                        mul_tuple(color, .7, integer=True),
+                        color,
                         False,
                         (
                             tuple(ship.position * CELL_SIZE + CELL_SIZE // 2),
@@ -179,5 +180,5 @@ class Plotter:
         return f"{self.bot.game.turn_number}/{constants.MAX_TURNS} X{self.speed_up:.0f} |" \
                f" G: {len(self.bot.game.players[0].get_ships()):>2d} {self.bot.game.players[0].halite_amount:>5d} | " \
                f" R: {len(self.bot.game.players[1].get_ships()):>2d} {self.bot.game.players[1].halite_amount:>5d}" \
-               + (f"\n selected: #{self.selected.id} {self.selected.halite_amount / constants.MAX_HALITE:.0%}"
+               + (f" | selected: #{self.selected.id} {self.selected.halite_amount / constants.MAX_HALITE * 100:>2.0f}%"
                   if self.selected else "")

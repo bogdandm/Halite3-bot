@@ -103,6 +103,9 @@ class MapCell:
         """
         return self.ship is not None
 
+    def is_occupied_base(self, me: Player):
+        return self.structure and self.ship and self.structure.owner is me and self.ship.owner is not me
+
     @property
     def has_structure(self):
         """
