@@ -213,6 +213,8 @@ class GameMap:
         :param position: A position object.
         :return: A normalized position object fitting within the bounds of the map
         """
+        if isinstance(position, tuple):
+            position = Position(*position)
         return Position(position.x % self.width, position.y % self.height)
 
     def normalize_direction(self, direction):

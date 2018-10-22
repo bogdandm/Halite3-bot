@@ -7,10 +7,7 @@ from typing import Dict, Iterable, List, Set, Tuple
 import hlt
 from hlt import Direction, Position, constants
 from hlt.entity import Ship
-from .const import LOCAL, V2
-
-if V2:
-    logging.info("Running in alternative mod")
+from .const import LOCAL
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -22,7 +19,7 @@ def ship_collecting_halite_coefficient(ship, gmap):
 class Bot:
     def __init__(
             self,
-            ship_fill_k=.95,
+            ship_fill_k=.7,
             distance_penalty_k=1.3,
             ship_limit=30,
             ship_turns_stop=100,
@@ -48,15 +45,27 @@ class Bot:
 
     def run(self):
         self.game.ready("BogdanDm")
-        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
         logging.info("Player ID: {}.".format(self.game.my_id))
+
+        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
         self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
+
         while True:
             self.game.update_frame()
+
+            my_ships = {ship.id: ship for ship in self.game.me.get_ships()}
+            # Update ships and delete destroyed ones
+            self.ships_targets = {
+                my_ships[ship.id]: target
+                for ship, target in self.ships_targets.items()
+                if ship.id in my_ships
+            }
+
             commands = self.loop()
             self.game.end_turn(commands)
+
             for fn in self.callbacks:
                 while not fn():
                     pass
@@ -66,6 +75,7 @@ class Bot:
 
     def loop(self):
         me = self.game.me
+        my_ships = me.get_ships()
         gmap = self.game.map
         home = self.game.me.shipyard.position
 
@@ -84,16 +94,11 @@ class Bot:
                 else:
                     mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
 
+        self.debug_maps["mask"] = mask
+
         # Generate moves for ships from mask and halite field
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
-        for ship in me.get_ships():
-            per_ship_mask = defaultdict(lambda: 1)
-            for another_ship, target in self.ships_targets.items():
-                if another_ship is ship:
-                    continue
-                # Penalty for preventing long queues to hapen
-                per_ship_mask[target] *= self.same_target_penalty
-
+        for ship in my_ships:
             # Ship unloading
             if ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
                 logging.info(f"Ship#{ship.id} moving home")
@@ -101,14 +106,32 @@ class Bot:
                 moves.append((ship, list(self.game.map.get_unsafe_moves(ship.position, home))))
 
             else:
+                per_ship_mask = defaultdict(lambda: 1)
+                for another_ship, target in self.ships_targets.items():
+                    if another_ship is ship or target is None or target == home:
+                        continue
+                    # Penalty for preventing long queues to happen
+                    # if V2:
+                    #     # Based on distance difference
+                    #     ship_distance = gmap.calculate_distance(ship.position, target)
+                    #     another_ship_distance = gmap.calculate_distance(another_ship.position, target)
+                    #     k = ship_distance / another_ship_distance if another_ship_distance else 1
+                    #     # logging.debug(
+                    #     #     f"#{str(another_ship):50} -> {str(target):16} "
+                    #     #     f"{k:.2f} ({ship_distance:2d} / {another_ship_distance:2d})"
+                    #     # )
+                    #     per_ship_mask[target] *= 1 if k <= .9 else (self.same_target_penalty ** k)
+                    # else:
+                    per_ship_mask[target] *= self.same_target_penalty
+
                 # Ship has too low halite to move
                 if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
-                    self.ships_targets[ship] = None
+                    # self.ships_targets[ship] = None
                     yield ship.stay_still()
                     continue
 
                 position = None
-                radius = 8 if LOCAL else 10
+                radius = 8 if LOCAL else 16
                 if radius:
                     field = ship.position.get_surrounding_cardinals(radius, center=True)
                 else:
@@ -130,12 +153,12 @@ class Bot:
                         surrounding[coord] /= ship_collecting_halite_coefficient(ship, gmap)
                         # surrounding[coord] *= self.stay_still_bonus
 
+                self.debug_maps[ship.id] = surrounding
+
                 # Found max point
                 max_halite: Tuple[Position, int] = max(surrounding.items(), key=operator.itemgetter(1))
                 if max_halite[1] > 0.1:
                     position = max_halite[0]
-
-                self.debug_maps[ship.id] = surrounding
 
                 if position:
                     if position == ship.position:
@@ -168,7 +191,7 @@ class Bot:
                 and not gmap[me.shipyard].is_occupied
                 and self.max_ships_reached <= 2
         ):
-            if len(me.get_ships()) < self.ship_limit:
+            if len(my_ships) < self.ship_limit:
                 yield me.shipyard.spawn()
             else:
                 self.max_ships_reached += 1
