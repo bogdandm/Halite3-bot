@@ -48,7 +48,7 @@ class Bot:
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
-        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
+        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (72 - 32)))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -90,7 +90,7 @@ class Bot:
                 if player is not me:
                     mask[ship.position] *= self.enemy_ship_penalty
                     for pos in ship.position.get_surrounding_cardinals():
-                        mask[pos] *= self.enemy_ship_nearby_penalty
+                        mask[gmap.normalize_direction(pos)] *= self.enemy_ship_nearby_penalty
                 else:
                     mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
 
