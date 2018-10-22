@@ -1,3 +1,4 @@
+import operator
 from itertools import chain
 from typing import Iterable, List, Optional, Union
 
@@ -143,7 +144,7 @@ class MapCell:
         return not self.__eq__(other)
 
     def __str__(self):
-        return 'MapCell({}, halite={})'.format(self.position, self.halite_amount)
+        return f'MapCell({self.position}, halite={self.halite_amount})'
 
 
 class GameMap:
@@ -185,6 +186,10 @@ class GameMap:
     def cells(self):
         return self._cells
 
+    @property
+    def total_halite(self):
+        return sum(map(operator.attrgetter("halite_amount"), iter(self)))
+
     def calculate_distance(self, source, target):
         """
         Compute the Manhattan distance between two locations.
@@ -209,6 +214,9 @@ class GameMap:
         :return: A normalized position object fitting within the bounds of the map
         """
         return Position(position.x % self.width, position.y % self.height)
+
+    def normalize_direction(self, direction):
+        return tuple(map(lambda x: x if abs(x) == 1 or x == 0 else -abs(x) // x, direction))
 
     @staticmethod
     def _get_target_direction(source, target):
@@ -249,8 +257,8 @@ class GameMap:
     def swap_ships(self, ship1: 'Ship', ship2: 'Ship'):
         self[ship1.position].mark_unsafe(ship2)
         self[ship2.position].mark_unsafe(ship1)
-        yield ship1.move(tuple(ship2.position - ship1.position))
-        yield ship2.move(tuple(ship1.position - ship2.position))
+        yield ship1.move(self.normalize_direction(ship2.position - ship1.position))
+        yield ship2.move(self.normalize_direction(ship1.position - ship2.position))
 
     def naive_navigate(self, ship, destination):
         """

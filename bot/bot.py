@@ -18,17 +18,17 @@ def ship_collecting_halite_coefficient(ship, gmap):
     cell = gmap[ship.position].halite_amount or 10 ** -10
     return max((cell - ship_cargo_free) / cell, .1)
 
+
 class Bot:
     def __init__(
             self,
-            ship_fill_k=.75,
+            ship_fill_k=.95,
             distance_penalty_k=1.3,
             ship_limit=30,
             ship_turns_stop=100,
             enemy_ship_penalty=.1,
-            enemy_ship_nearby_penalty=.9,
-            same_target_penalty=.7,
-            stay_still_bonus=1.1
+            enemy_ship_nearby_penalty=.3,  # .9
+            same_target_penalty=.7
     ):
         self.ship_fill_k = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
@@ -38,19 +38,21 @@ class Bot:
         self.enemy_ship_penalty = enemy_ship_penalty
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
-        self.stay_still_bonus = stay_still_bonus
+        self.stay_still_bonus = None
 
         self.game = hlt.Game()
         self.callbacks = []
         self.debug_maps = {}
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
+        self.max_ships_reached = 0
 
     def run(self):
         self.game.ready("BogdanDm")
+        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
         logging.info("Player ID: {}.".format(self.game.my_id))
         self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
         if len(self.game.players) == 4:
-            self.ship_limit //= 1.5
+            self.ship_limit //= 1.2
         while True:
             self.game.update_frame()
             commands = self.loop()
@@ -162,15 +164,14 @@ class Bot:
         # Max ships: base at 32 map size, 2*base at 64 map size
         if (
                 self.game.turn_number <= constants.MAX_TURNS - self.ship_turns_stop
-                and len(me.get_ships()) < self.ship_limit
                 and me.halite_amount >= constants.SHIP_COST
                 and not gmap[me.shipyard].is_occupied
+                and self.max_ships_reached <= 2
         ):
-            # for pos in gmap[me.shipyard].position.get_surrounding_cardinals():
-            #     if gmap[pos].is_occupied:
-            #         break
-            # else:
-            yield me.shipyard.spawn()
+            if len(me.get_ships()) < self.ship_limit:
+                yield me.shipyard.spawn()
+            else:
+                self.max_ships_reached += 1
 
     def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
         gmap = self.game.map
@@ -210,7 +211,10 @@ class Bot:
                 if resolved:
                     break
                 for d2 in ld2:
-                    if ship1.position + d1 == ship2.position and ship1.position == ship2.position + d2:
+                    if (
+                            gmap.normalize(ship1.position + d1) == ship2.position
+                            and ship1.position == gmap.normalize(ship2.position + d2)
+                    ):
                         resolved = True
                         swapped_ships.add(ship1)
                         swapped_ships.add(ship2)

@@ -177,8 +177,12 @@ class Plotter:
 
     @property
     def info(self):
+        if self.selected:
+            load = (1 - self.selected.halite_amount / constants.MAX_HALITE) * 100
+        else:
+            load = 0
         return f"{self.bot.game.turn_number}/{constants.MAX_TURNS} X{self.speed_up:.0f} |" \
                f" G: {len(self.bot.game.players[0].get_ships()):>2d} {self.bot.game.players[0].halite_amount:>5d} | " \
                f" R: {len(self.bot.game.players[1].get_ships()):>2d} {self.bot.game.players[1].halite_amount:>5d}" \
-               + (f" | selected: #{self.selected.id} {self.selected.halite_amount / constants.MAX_HALITE * 100:>2.0f}%"
+               + (f" | selected: #{self.selected.id} {load:>2.0f}%"
                   if self.selected else "")

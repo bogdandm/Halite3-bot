@@ -43,6 +43,7 @@ class Game:
         :param name: The name of your bot
         """
         send_commands([name])
+        self.initial_halite = self.map.total_halite
 
     def update_frame(self):
         """
