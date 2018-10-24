@@ -21,13 +21,13 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
-            distance_penalty_k=1.1,
+            distance_penalty_k=1.3 if V2 else 1.1,
             ship_limit=30,
             ship_spawn_stop_turn=200,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
-            lookup_radius=10 if LOCAL else 20
+            lookup_radius=20 if LOCAL else 25
     ):
         self.ship_fill_k_base = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
@@ -41,14 +41,16 @@ class Bot:
         self.lookup_radius = lookup_radius
 
         self.game = hlt.Game()
-        self.callbacks = []
-        self.debug_maps = {}
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
+        self.ships_to_home: Set[int] = set()
         self.max_ships_reached = 0
         self.collect_ships_stage_started = False
 
+        self.callbacks = []
+        self.debug_maps = {}
+
     def run(self):
-        self.game.ready("BogdanDm")
+        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
@@ -108,17 +110,20 @@ class Bot:
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
         for ship in my_ships:
             # Ship unloading
-            if ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
+            to_home = ship in self.ships_to_home
+            if to_home and ship.position == home:
+                logging.info(f"Ship#{ship.id} unload")
+                self.ships_to_home.remove(ship)
+                to_home = False
+
+            if to_home or ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
                 logging.info(f"Ship#{ship.id} moving home")
-                if V2:
-                    self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, home)
-                    moves.append((
-                        ship,
-                        (gmap.normalize_direction(path[0] - ship.position),)
-                    ))
-                else:
-                    self.ships_targets[ship] = home
-                    moves.append((ship, list(self.game.map.get_unsafe_moves(ship.position, home))))
+                self.ships_to_home.add(ship)
+                self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, home)
+                moves.append((
+                    ship,
+                    (gmap.normalize_direction(path[0] - ship.position),)
+                ))
 
             else:
                 per_ship_mask = defaultdict(lambda: 1)
