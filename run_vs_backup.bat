@@ -1,3 +1,4 @@
-halite.exe --replay-directory replays/ -vvv --width 32 --height 32 --"no-timeout"^
-    "python MyBot.py --v2"^
-    "cd backups\v5 & python MyBot.py "
+halite.exe --replay-directory replays/ -vvv --width 46 --height 46 --"no-timeout"^
+    "python MyBot.py"^
+    "cd backups\v6 & python MyBot.py "
+:: --v2

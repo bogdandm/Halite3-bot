@@ -125,14 +125,19 @@ class Plotter:
                         round(CELL_SIZE / 2.5 * (ship.halite_amount / constants.MAX_HALITE))
                     )
                 if is_selected and self.bot.ships_targets.get(ship, None):
+                    target = self.bot.ships_targets[ship]
+                    if isinstance(target, Position):
+                        points = (ship.position, target)
+                    else:
+                        points = [ship.position, *target]
+
                     pygame.draw.lines(
                         self.screen,
                         color,
                         False,
-                        (
-                            tuple(ship.position * CELL_SIZE + CELL_SIZE // 2),
-                            tuple(self.bot.ships_targets[ship] * CELL_SIZE + CELL_SIZE // 2)
-                        ),
+                        [
+                            tuple(point * CELL_SIZE + CELL_SIZE // 2) for point in points
+                        ],
                         1
                     )
 

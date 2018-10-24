@@ -2,12 +2,13 @@ import logging
 import operator
 from collections import defaultdict
 from itertools import combinations
+from random import shuffle
 from typing import Dict, Iterable, List, Set, Tuple
 
 import hlt
 from hlt import Direction, Position, constants
 from hlt.entity import Ship
-from .const import LOCAL
+from .const import LOCAL, V2
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -20,35 +21,38 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
-            distance_penalty_k=1.3,
+            distance_penalty_k=1.1,
             ship_limit=30,
-            ship_turns_stop=100,
+            ship_spawn_stop_turn=200,
             enemy_ship_penalty=.1,
-            enemy_ship_nearby_penalty=.3,  # .9
-            same_target_penalty=.7
+            enemy_ship_nearby_penalty=.3,
+            same_target_penalty=.7,
+            lookup_radius=10 if LOCAL else 20
     ):
-        self.ship_fill_k = ship_fill_k
+        self.ship_fill_k_base = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
         self.ship_limit_base = ship_limit
         self.ship_limit = self.ship_limit_base
-        self.ship_turns_stop = ship_turns_stop
+        self.ship_turns_stop = ship_spawn_stop_turn
         self.enemy_ship_penalty = enemy_ship_penalty
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
         self.stay_still_bonus = None
+        self.lookup_radius = lookup_radius
 
         self.game = hlt.Game()
         self.callbacks = []
         self.debug_maps = {}
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
         self.max_ships_reached = 0
+        self.collect_ships_stage_started = False
 
     def run(self):
         self.game.ready("BogdanDm")
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
-        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (72 - 32)))
+        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) / 1.5))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -63,7 +67,7 @@ class Bot:
                 if ship.id in my_ships
             }
 
-            commands = self.loop()
+            commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
             self.game.end_turn(commands)
 
             for fn in self.callbacks:
@@ -72,6 +76,10 @@ class Bot:
 
     def add_callback(self, fn):
         self.callbacks.append(fn)
+
+    @property
+    def ship_fill_k(self):
+        return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
 
     def loop(self):
         me = self.game.me
@@ -89,8 +97,8 @@ class Bot:
             for ship in player.get_ships():
                 if player is not me:
                     mask[ship.position] *= self.enemy_ship_penalty
-                    for pos in ship.position.get_surrounding_cardinals():
-                        mask[gmap.normalize_direction(pos)] *= self.enemy_ship_nearby_penalty
+                    for dir in Direction.All:
+                        mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
                 else:
                     mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
 
@@ -102,12 +110,21 @@ class Bot:
             # Ship unloading
             if ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
                 logging.info(f"Ship#{ship.id} moving home")
-                self.ships_targets[ship] = home
-                moves.append((ship, list(self.game.map.get_unsafe_moves(ship.position, home))))
+                if V2:
+                    self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, home)
+                    moves.append((
+                        ship,
+                        (gmap.normalize_direction(path[0] - ship.position),)
+                    ))
+                else:
+                    self.ships_targets[ship] = home
+                    moves.append((ship, list(self.game.map.get_unsafe_moves(ship.position, home))))
 
             else:
                 per_ship_mask = defaultdict(lambda: 1)
                 for another_ship, target in self.ships_targets.items():
+                    if isinstance(target, list):
+                        target = target[0]
                     if another_ship is ship or target is None or target == home:
                         continue
                     # Penalty for preventing long queues to happen
@@ -131,19 +148,21 @@ class Bot:
                     continue
 
                 position = None
-                radius = 8 if LOCAL else 16
-                if radius:
-                    field = ship.position.get_surrounding_cardinals(radius, center=True)
+                if gmap.width // 2 - 1 > self.lookup_radius:
+                    field = map(
+                        gmap.normalize,
+                        ship.position.get_surrounding_cardinals(self.lookup_radius, center=True)
+                    )
                 else:
                     field = map(operator.attrgetter('position'), gmap)
-                surrounding = {Position(*coord): gmap[coord].halite_amount for coord in field}
+                surrounding = {coord: gmap[coord].halite_amount for coord in field}
 
                 # Apply masks
                 for coord in surrounding:
                     surrounding[coord] *= mask[coord]
                     surrounding[coord] *= per_ship_mask[coord]
                     # surrounding[coord] /= 1 + 1 / constants.MOVE_COST_RATIO
-                    distance = gmap.calculate_distance(ship.position, coord)
+                    distance = gmap.distance(ship.position, coord)
                     if distance:
                         # Distance penalty
                         # TODO: Experiment with A* algorithm
@@ -195,6 +214,79 @@ class Bot:
                 yield me.shipyard.spawn()
             else:
                 self.max_ships_reached += 1
+
+    @property
+    def collect_ships_stage(self):
+        if self.collect_ships_stage_started:
+            return True
+        if self.game.turn_number + 10 < constants.MAX_TURNS - self.game.map.width / 2:
+            return False
+        me = self.game.me
+        gmap = self.game.map
+        distances = [gmap.distance(ship.position, me.shipyard.position)
+                     for ship in me.get_ships()]
+        distances = sorted(distances)
+        if len(distances) > 10:
+            distances = distances[:-4]
+        if constants.MAX_TURNS - self.game.turn_number + 2 >= distances[-1]:
+            self.collect_ships_stage_started = True
+            return True
+
+    def get_ship_parking_spot(self, ship: 'Ship'):
+        gmap = self.game.map
+        home = self.game.me.shipyard.position
+        s = gmap.width // 2
+        x, y = gmap.normalize(ship.position - home + (s, s))
+        if 0 <= x < s:
+            hor = 0
+        elif x == s:
+            hor = 0 if y > s else 1
+        else:
+            hor = 1
+
+        if 0 <= y < s:
+            vert = 0
+        elif y == s:
+            vert = 0 if x > s else 1
+        else:
+            vert = 1
+
+        return {
+            (0, 0): (0, -1),
+            (1, 0): (1, 0),
+            (1, 1): (0, 1),
+            (0, 1): (-1, 0),
+        }[hor, vert]
+
+    def collect_ships(self):
+        gmap = self.game.map
+        me = self.game.me
+        home = me.shipyard.position
+
+        collect_points = [home + d for d in Direction.All]
+        # points = {p: [] for p in collect_points}
+        moves = []
+        for ship in me.get_ships():
+            if ship.position not in collect_points and ship.position != home:
+                point = home + self.get_ship_parking_spot(ship)
+                # points[point].append(ship)
+                ship_moves = list(gmap.get_unsafe_moves(ship.position, point))
+                shuffle(ship_moves)
+                moves.append((ship, ship_moves))
+            else:
+                direction = next(gmap.get_unsafe_moves(ship.position, home), None)
+                if direction:
+                    yield gmap.update_ship_position(ship, direction)
+                else:
+                    yield ship.stay_still()
+
+        for i in range(4):
+            commands, moves = self.resolve_moves(moves)
+            yield from commands
+
+        for ship, d in moves:
+            logging.debug(f"Unsafe move: {ship} -> {d}")
+            yield ship.stay_still()
 
     def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
         gmap = self.game.map

@@ -14,3 +14,4 @@ venv
 *.exe
 *.zip
 backups/
+*.egg

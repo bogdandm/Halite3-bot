@@ -1,7 +1,9 @@
 import operator
 from itertools import chain
+from queue import PriorityQueue
 from typing import Iterable, List, Optional, Union
 
+from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
 from .positionals import Direction, Position
@@ -147,6 +149,24 @@ class MapCell:
         return f'MapCell({self.position}, halite={self.halite_amount})'
 
 
+class PrioritizedItem:
+    def __init__(self, position, priority):
+        self.position = position
+        self.priority = priority
+
+    def __gt__(self, other):
+        return self.priority > other.priority
+
+    def __gte__(self, other):
+        return self.priority >= other.priority
+
+    def __lt__(self, other):
+        return self.priority < other.priority
+
+    def __lte__(self, other):
+        return self.priority <= other.priority
+
+
 class GameMap:
     """
     The game map.
@@ -190,7 +210,7 @@ class GameMap:
     def total_halite(self):
         return sum(map(operator.attrgetter("halite_amount"), iter(self)))
 
-    def calculate_distance(self, source, target):
+    def distance(self, source, target):
         """
         Compute the Manhattan distance between two locations.
         Accounts for wrap-around.
@@ -277,6 +297,37 @@ class GameMap:
                 return direction
 
         return Direction.Still
+
+    def a_star_path_search(self, start: 'Position', target: 'Position'):
+        total_halite = self.total_halite
+        halite_estimated_per_cell = total_halite / self.width / self.height / constants.MOVE_COST_RATIO / 2
+
+        queue = PriorityQueue()
+        queue.put(PrioritizedItem(start, 0))
+        closed = {start: 0}
+        came_from = {start: None}
+
+        while not queue.empty():
+            current: Position = queue.get().position
+            if current == target:
+                break
+
+            for direction in Direction.All:
+                next_node = self.normalize(current + direction)
+                new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO
+                if next_node not in closed or new_cost < closed[next_node]:
+                    closed[next_node] = new_cost
+                    came_from[next_node] = current
+                    estimated_cost = new_cost + self.distance(next_node, target) * halite_estimated_per_cell
+                    queue.put(PrioritizedItem(next_node, estimated_cost))
+
+        result = [target]
+        current = came_from[target]
+        while current != start:
+            result.append(current)
+            current = came_from[current]
+        result.reverse()
+        return result
 
     @staticmethod
     def _generate():

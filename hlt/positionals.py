@@ -115,7 +115,11 @@ class Position:
         return Position(abs(self.x), abs(self.y))
 
     def __eq__(self, other: 'Position'):
-        return self.x == other.x and self.y == other.y
+        if isinstance(other, Position):
+            return self.x == other.x and self.y == other.y
+        elif isinstance(other, tuple):
+            return self.x == other[0] and self.y == other[1]
+
 
     def __ne__(self, other):
         return not self.__eq__(other)
