@@ -1,5 +1,6 @@
 MyBot
 Makefile
+replays/
 *.hlt
 *.log
 *~

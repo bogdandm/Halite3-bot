@@ -1,7 +1,7 @@
 import logging
 import operator
 from collections import defaultdict
-from itertools import combinations
+from itertools import chain, combinations
 from random import shuffle
 from typing import Dict, Iterable, List, Set, Tuple
 
@@ -9,6 +9,7 @@ import hlt
 from hlt import Direction, Position, constants
 from hlt.entity import Ship
 from .const import LOCAL, V2
+from .gaussian_blur import blur
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -21,7 +22,7 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
-            distance_penalty_k=1.3,
+            distance_penalty_k=1.5,
             ship_limit=30,
             ship_spawn_stop_turn=.5,
             enemy_ship_penalty=.1,
@@ -103,8 +104,13 @@ class Bot:
                         mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
                 else:
                     mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
-
         self.debug_maps["mask"] = mask
+
+        gaussian_blurred_halite = blur([[cell.halite_amount for cell in row] for row in gmap.cells], 2, 5)
+        gbh_min, gbh_max = min(chain(*gaussian_blurred_halite)), max(chain(*gaussian_blurred_halite))
+        gbh_norm: List[List[float]] = [[(value - gbh_min) / (gbh_max - gbh_min) for value in row] for row in
+                                       gaussian_blurred_halite]
+        self.debug_maps["gbh_norm"] = gbh_norm
 
         # Generate moves for ships from mask and halite field
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
@@ -164,6 +170,7 @@ class Bot:
 
                 # Apply masks
                 for coord in surrounding:
+                    surrounding[coord] *= gbh_norm[coord.y][coord.x] / 2 + .5
                     surrounding[coord] *= mask[coord]
                     surrounding[coord] *= per_ship_mask[coord]
                     # surrounding[coord] /= 1 + 1 / constants.MOVE_COST_RATIO

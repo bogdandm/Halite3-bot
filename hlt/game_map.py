@@ -203,7 +203,7 @@ class GameMap:
             yield from row
 
     @property
-    def cells(self):
+    def cells(self) -> List[List[MapCell]]:
         return self._cells
 
     @property
@@ -298,7 +298,7 @@ class GameMap:
 
         return Direction.Still
 
-    def a_star_path_search(self, start: 'Position', target: 'Position'):
+    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True):
         total_halite = self.total_halite
         halite_estimated_per_cell = total_halite / self.width / self.height / constants.MOVE_COST_RATIO / 2
 
@@ -315,6 +315,8 @@ class GameMap:
             for direction in Direction.All:
                 next_node = self.normalize(current + direction)
                 new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO
+                if ignore_ships is False and self[next_node].is_occupied:
+                    new_cost += constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
                 if next_node not in closed or new_cost < closed[next_node]:
                     closed[next_node] = new_cost
                     came_from[next_node] = current

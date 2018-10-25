@@ -82,10 +82,23 @@ class Plotter:
         return not self.pause
 
     def draw_halite(self):
+        # halite = [[cell.halite_amount for cell in row] for row in self.bot.game.map.cells]
+        # halite = blur(halite, 1, 5)
+        # positions = [[cell.position for cell in row] for row in self.bot.game.map.cells]
+        # field = [[MapCell(positions[i][j], halite[i][j]) for j in range(len(halite[0]))] for i in range(len(halite))]
+        # for cell in chain(*field):
         for cell in self.bot.game.map:
+            halite = cell.halite_amount / constants.MAX_HALITE
+            color = mul_tuple((255, 255, 255), min(halite, 1), integer=True)
+            if "gbh_norm" in self.bot.debug_maps:
+                r, g, b = color
+                k = 1 - self.bot.debug_maps["gbh_norm"][cell.position.y][cell.position.x]
+                g *= k
+                b *= k
+                color = r, g, b
             pygame.draw.rect(
                 self.screen,
-                mul_tuple((255, 255, 255), min(cell.halite_amount / constants.MAX_HALITE, 1), integer=True),
+                color,
                 pos2rect(cell.position)
             )
 
