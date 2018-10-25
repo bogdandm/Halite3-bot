@@ -1,19 +1,8 @@
 import math
 from copy import deepcopy
-from functools import wraps
 from typing import List
 
-
-def memoized(func):
-    memory = {}
-
-    @wraps(func)
-    def memo(*args):
-        if args not in memory:
-            memory[args] = func(*args)
-        return memory[args]
-
-    return memo
+from bot.utils import memoized
 
 
 @memoized

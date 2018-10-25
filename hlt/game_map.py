@@ -234,8 +234,9 @@ class GameMap:
         :return: A normalized position object fitting within the bounds of the map
         """
         if isinstance(position, tuple):
-            position = Position(*position)
-        return Position(position.x % self.width, position.y % self.height)
+            return Position(position[0] % self.width, position[1] % self.height)
+        else:
+            return Position(position.x % self.width, position.y % self.height)
 
     def normalize_direction(self, direction):
         return tuple(map(lambda x: x if abs(x) == 1 or x == 0 else -abs(x) // x, direction))

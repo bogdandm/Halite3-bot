@@ -1,5 +1,6 @@
 import logging
 import operator
+import time
 from collections import defaultdict
 from itertools import chain, combinations
 from random import shuffle
@@ -28,7 +29,8 @@ class Bot:
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
-            lookup_radius=20 if LOCAL else 25
+            lookup_radius=20 if LOCAL else 25,
+            turn_time_warning=1.9
     ):
         self.ship_fill_k_base = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
@@ -40,12 +42,14 @@ class Bot:
         self.same_target_penalty = same_target_penalty
         self.stay_still_bonus = None
         self.lookup_radius = lookup_radius
+        self.turn_time_warning = turn_time_warning
 
         self.game = hlt.Game()
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
         self.ships_to_home: Set[int] = set()
         self.max_ships_reached = 0
         self.collect_ships_stage_started = False
+        self.fast_mode = False
 
         self.callbacks = []
         self.debug_maps = {}
@@ -60,6 +64,7 @@ class Bot:
             self.ship_limit //= 1.2
 
         while True:
+            time1 = time.time()
             self.game.update_frame()
 
             my_ships = {ship.id: ship for ship in self.game.me.get_ships()}
@@ -76,6 +81,14 @@ class Bot:
             for fn in self.callbacks:
                 while not fn():
                     pass
+
+            turn_time = time.time() - time1
+            if not self.fast_mode and turn_time > self.turn_time_warning:
+                self.fast_mode = True
+                logging.info("Fast mod: ENABLED")
+            elif self.fast_mode and turn_time < self.turn_time_warning - .5:
+                self.fast_mode = False
+                logging.info("Fast mod: DISABLED")
 
     def add_callback(self, fn):
         self.callbacks.append(fn)
@@ -96,21 +109,30 @@ class Bot:
         # * penalty for cells around enemy ships (4 directions)
         # * friendly dynamic penalty based on ship cargo / cell halite ratio
         mask = defaultdict(lambda: 1)
-        for player in self.game.players.values():
-            for ship in player.get_ships():
-                if player is not me:
-                    mask[ship.position] *= self.enemy_ship_penalty
-                    for dir in Direction.All:
-                        mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
-                else:
-                    mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
+        if not self.fast_mode:
+            for player in self.game.players.values():
+                for ship in player.get_ships():
+                    if player is not me:
+                        mask[ship.position] *= self.enemy_ship_penalty
+                        for dir in Direction.All:
+                            mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
+                    else:
+                        mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
         self.debug_maps["mask"] = mask
 
-        gaussian_blurred_halite = blur([[cell.halite_amount for cell in row] for row in gmap.cells], 2, 5)
-        gbh_min, gbh_max = min(chain(*gaussian_blurred_halite)), max(chain(*gaussian_blurred_halite))
-        gbh_norm: List[List[float]] = [[(value - gbh_min) / (gbh_max - gbh_min) for value in row] for row in
-                                       gaussian_blurred_halite]
-        self.debug_maps["gbh_norm"] = gbh_norm
+        if not self.fast_mode:
+            gaussian_blurred_halite = blur([
+                [cell.halite_amount for cell in row]
+                for row in gmap.cells
+            ], 2, 5)
+            gbh_min, gbh_max = min(chain(*gaussian_blurred_halite)), max(chain(*gaussian_blurred_halite))
+            gbh_norm: List[List[float]] = [
+                [(value - gbh_min) / (gbh_max - gbh_min) for value in row]
+                for row in gaussian_blurred_halite
+            ]
+            self.debug_maps["gbh_norm"] = gbh_norm
+        else:
+            gbh_norm = None
 
         # Generate moves for ships from mask and halite field
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
@@ -170,7 +192,8 @@ class Bot:
 
                 # Apply masks
                 for coord in surrounding:
-                    surrounding[coord] *= gbh_norm[coord.y][coord.x] / 2 + .5
+                    if gbh_norm:
+                        surrounding[coord] *= gbh_norm[coord.y][coord.x] / 2 + .5
                     surrounding[coord] *= mask[coord]
                     surrounding[coord] *= per_ship_mask[coord]
                     # surrounding[coord] /= 1 + 1 / constants.MOVE_COST_RATIO

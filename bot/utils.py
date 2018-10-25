@@ -1,5 +1,6 @@
 import os
 import sys
+from functools import wraps
 
 
 class disable_print:
@@ -16,3 +17,15 @@ class disable_print:
 
 def mul_tuple(t: tuple, k: float, integer=False) -> tuple:
     return tuple(int(k * x) if integer else k * x for x in t)
+
+
+def memoized(func):
+    memory = {}
+
+    @wraps(func)
+    def memo(*args):
+        if args not in memory:
+            memory[args] = func(*args)
+        return memory[args]
+
+    return memo
