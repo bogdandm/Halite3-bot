@@ -21,9 +21,9 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
-            distance_penalty_k=1.3 if V2 else 1.1,
+            distance_penalty_k=1.3,
             ship_limit=30,
-            ship_spawn_stop_turn=200,
+            ship_spawn_stop_turn=.5,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
@@ -54,7 +54,7 @@ class Bot:
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
-        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) / 1.5))
+        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -210,7 +210,7 @@ class Bot:
 
         # Max ships: base at 32 map size, 2*base at 64 map size
         if (
-                self.game.turn_number <= constants.MAX_TURNS - self.ship_turns_stop
+                self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                 and me.halite_amount >= constants.SHIP_COST
                 and not gmap[me.shipyard].is_occupied
                 and self.max_ships_reached <= 2
