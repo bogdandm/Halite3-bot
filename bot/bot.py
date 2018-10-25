@@ -23,14 +23,14 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
-            distance_penalty_k=1.5,
+            distance_penalty_k=1.3,
             ship_limit=30,
             ship_spawn_stop_turn=.5,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
             lookup_radius=20 if LOCAL else 25,
-            turn_time_warning=1.9
+            turn_time_warning=1.8
     ):
         self.ship_fill_k_base = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
@@ -83,7 +83,7 @@ class Bot:
                     pass
 
             turn_time = time.time() - time1
-            if not self.fast_mode and turn_time > self.turn_time_warning:
+            if not LOCAL and not self.fast_mode and turn_time > self.turn_time_warning:
                 self.fast_mode = True
                 logging.info("Fast mod: ENABLED")
             elif self.fast_mode and turn_time < self.turn_time_warning - .5:
@@ -109,15 +109,14 @@ class Bot:
         # * penalty for cells around enemy ships (4 directions)
         # * friendly dynamic penalty based on ship cargo / cell halite ratio
         mask = defaultdict(lambda: 1)
-        if not self.fast_mode:
-            for player in self.game.players.values():
-                for ship in player.get_ships():
-                    if player is not me:
-                        mask[ship.position] *= self.enemy_ship_penalty
-                        for dir in Direction.All:
-                            mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
-                    else:
-                        mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
+        for player in self.game.players.values():
+            for ship in player.get_ships():
+                if player is not me:
+                    mask[ship.position] *= self.enemy_ship_penalty
+                    for dir in Direction.All:
+                        mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
+                else:
+                    mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
         self.debug_maps["mask"] = mask
 
         if not self.fast_mode:
