@@ -311,6 +311,9 @@ if "--args" in sys.argv:
 
     i = sys.argv.index("--args")
     args = sys.argv[i + 1]
+    if "/tmp" in args:
+        with open(args) as f:
+            args = f.read()
     args = json.loads(base64.b64decode(args).decode())
 else:
     args = {}

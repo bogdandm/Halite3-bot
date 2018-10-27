@@ -1,5 +1,7 @@
 import base64
 import json
+import sys
+import time
 from random import randint, random
 
 import scipy.stats
@@ -35,7 +37,13 @@ class IntegerArgument(FloatArgument):
 
 def compile_args(args: dict) -> str:
     s = json.dumps(args, sort_keys=True)
-    return base64.b64encode(s.encode()).decode()
+    result = base64.b64encode(s.encode()).decode()
+    if sys.platform.startswith("win"):
+        return result
+    filename = f"/tmp/{round(time.time() * 100000)}.args"
+    with open(filename) as f:
+        f.write(result)
+    return filename
 
 
 class GenericBotArguments:
