@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 from .bot_model import BotArguments, BotArgumentsV3
 from .core import GeneticOptimizer, GeneticOptimizerCore
@@ -21,7 +22,7 @@ def parse_args(*args):
     return args.mutation_rate_base, args.bots_per_generation, args.number_games, VERSION[args.version], args.generations
 
 
-mutation_rate_base, bots_per_generation, (count_2, count_4), version, generations = parse_args()
+mutation_rate_base, bots_per_generation, (count_2, count_4), version, generations = parse_args(*sys.argv[1:])
 go = GeneticOptimizer(GeneticOptimizerCore(
     version(),
     mutation_rate=lambda generation: mutation_rate_base / (generation + 1),
