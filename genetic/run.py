@@ -17,17 +17,24 @@ def parse_args(*args):
     parser.add_argument("-N", "--number-games", nargs=2, default=(8, 4), type=int)
     parser.add_argument("-v", "--version", default="latest")
     parser.add_argument("-g", "--generations", default=4, type=int)
+    parser.add_argument("-p", "--print", action="store_true")
 
     args = parser.parse_args(args)
-    return args.mutation_rate_base, args.bots_per_generation, args.number_games, VERSION[args.version], args.generations
+    return args.mutation_rate_base, args.bots_per_generation, args.number_games, VERSION[args.version], \
+           args.generations, args.print
 
 
-mutation_rate_base, bots_per_generation, (count_2, count_4), version, generations = parse_args(*sys.argv[1:])
-go = GeneticOptimizer(GeneticOptimizerCore(
-    version(),
-    mutation_rate=lambda generation: mutation_rate_base / (generation + 1),
-    bots_per_generation=bots_per_generation,
-    count_2=count_2,
-    count_4=count_4
-))
-go.run(generations=generations)
+mutation_rate_base, bots_per_generation, (count_2, count_4), version, generations, print_data \
+    = parse_args(*sys.argv[1:])
+
+if print_data:
+    GeneticOptimizer(GeneticOptimizerCore(version())).print()
+else:
+    go = GeneticOptimizer(GeneticOptimizerCore(
+        version(),
+        mutation_rate=lambda generation: mutation_rate_base / (generation + 1),
+        bots_per_generation=bots_per_generation,
+        count_2=count_2,
+        count_4=count_4
+    ))
+    go.run(generations=generations)

@@ -1,4 +1,5 @@
 import operator
+import statistics
 import sys
 from queue import Queue
 from random import shuffle
@@ -206,7 +207,15 @@ class GeneticOptimizer:
                 self.g_number = self.db.last_generation
 
     def print(self):
-        bots = [bot.args_dict for bot in self.db.load_generation(self.db.last_generation)]
-        for arg, _ in self.core.bot_class:
-            value = sum(args[arg] for args in bots) / len(bots)
-            print(f"{arg:30>s} = {value}")
+        bots = [(bot.args_dict, bot.halite) for bot in self.db.load_generation(self.db.last_generation)]
+        halite_sum = sum(bot[1] for bot in bots)
+        weights = [bot[1] / halite_sum for bot in bots]
+        args_names = [arg for arg, _ in self.core.bot_class]
+        max_arg_len = max(map(len, args_names))
+        for arg in args_names:
+            values = [args[arg] for args, _ in bots]
+            mean = statistics.mean(values)
+            std = statistics.stdev(values)
+            weighted_mean = sum(v * k for v, k in zip(values, weights))
+            formatted_arg = ("{:>%ds}" % max_arg_len).format(arg)
+            print(f"{formatted_arg} | {float(mean):.3f} +-{float(std):.5f} (weighted: {weighted_mean:.3f})")
