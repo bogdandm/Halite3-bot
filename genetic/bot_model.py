@@ -63,14 +63,14 @@ class GenericBotArguments:
 
 
 class BotArgumentsV3(GenericBotArguments):
-    command = "cd backups\\v3 & python MyBot.py --args '{args}'"
+    command = "cd backups\\v3 & python MyBot.py --args {args}"
     version = 3
 
     ship_fill_k = FloatArgument(0.2, 1.0)
 
 
 class BotArguments(BotArgumentsV3):
-    command = "python MyBot.py --args '{args}'"
+    command = "python MyBot.py --args {args}"
     version = 11
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
