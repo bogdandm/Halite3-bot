@@ -42,7 +42,7 @@ def _play_game(binary, bot_commands, flags):
         command.append(bot_command)
     logging.debug(f'Run: \'{" ".join(command)}\'')
     logging.debug(f"CWD: '{CWD}'")
-    return subprocess.check_output(" ".join(map(win_arg_wrap, command)), cwd=str(CWD)).decode()
+    return subprocess.check_output(" ".join(map(win_arg_wrap, command)), cwd=str(CWD), shell=True).decode()
 
 
 def play_game(binary: str, bot_commands: List[str], *flags: str, map_width: int = None, map_height: int = None,

@@ -40,7 +40,7 @@ def compile_args(args: dict) -> str:
     result = base64.b64encode(s.encode()).decode()
     if sys.platform.startswith("win"):
         return result
-    filename = f"/tmp/{round(time.time() * 100000)}.args"
+    filename = f"/tmp/{round(time.time() * 100000)}-{randint(0, 1000)}.args"
     with open(filename, "w") as f:
         f.write(result)
     return filename
