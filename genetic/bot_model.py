@@ -41,7 +41,7 @@ def compile_args(args: dict) -> str:
     if sys.platform.startswith("win"):
         return result
     filename = f"/tmp/{round(time.time() * 100000)}.args"
-    with open(filename) as f:
+    with open(filename, "w") as f:
         f.write(result)
     return filename
 
