@@ -30,7 +30,8 @@ class Bot:
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
             lookup_radius=20 if LOCAL else 25,
-            turn_time_warning=1.8
+            turn_time_warning=1.8,
+            ship_limit_scaling=1  # ship_limit_scaling + 1 multiplier on large map
     ):
         self.ship_fill_k_base = ship_fill_k
         self.distance_penalty_k = distance_penalty_k
@@ -43,6 +44,7 @@ class Bot:
         self.stay_still_bonus = None
         self.lookup_radius = lookup_radius
         self.turn_time_warning = turn_time_warning
+        self.ship_limit_scaling = ship_limit_scaling
 
         self.game = hlt.Game()
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
@@ -59,7 +61,9 @@ class Bot:
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
-        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
+        self.ship_limit = round(
+            self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
+        )
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -253,7 +257,7 @@ class Bot:
     def collect_ships_stage(self):
         if self.collect_ships_stage_started:
             return True
-        if self.game.turn_number + 10 < constants.MAX_TURNS - self.game.map.width / 2:
+        if self.game.turn_number + 5 < constants.MAX_TURNS - self.game.map.width / 2:
             return False
         me = self.game.me
         gmap = self.game.map

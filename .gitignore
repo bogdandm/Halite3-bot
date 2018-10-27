@@ -17,3 +17,4 @@ venv
 backups/
 *.egg
 *.pstat
+*.db
