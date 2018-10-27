@@ -80,7 +80,7 @@ class GeneticOptimizerCore:
 
         map_size = MAP_SIZES[n][game_count_getter(bots[0]) % len(MAP_SIZES[n])]
         result = play_game(
-            "halite.exe" if sys.platform.startswith("win") else "halite",
+            "halite.exe" if sys.platform.startswith("win") else "./halite",
             [self.bot_class.command.format(args=compile_args(bot.args_dict))
              for bot in bots],
             map_width=map_size, map_height=map_size
