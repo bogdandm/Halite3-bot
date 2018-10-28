@@ -6,11 +6,6 @@ from random import shuffle
 from typing import Callable, Iterable, List, Optional, Tuple, Union
 
 import sqlalchemy as sql
-
-try:
-    from asciichartpy import plot
-except ImportError:
-    plot = None
 from tqdm import tqdm
 
 from .bot_model import GenericBotArguments, compile_args
@@ -232,8 +227,5 @@ class GeneticOptimizer:
 
         print("-" * 50)
         stats = self.db.generations_stats()
-        if plot:
-            print(plot([0] + [s / 1e+6 for s in stats]))
-            print("-" * 50)
         for i, stat in enumerate(stats):
-                print(f"{i}) {stat/1e+6:.2f}kk")
+            print(f"{i}) {stat/1e+6:.2f}kk")
