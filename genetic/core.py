@@ -184,7 +184,7 @@ class GeneticOptimizer:
         games_played = Session.query(GameResult).count()
 
         with tqdm(
-                total=games_per_generation * (generations - self.g_number),
+                total=games_per_generation * generations,
                 ncols=70,
                 initial=games_played,
                 position=0
