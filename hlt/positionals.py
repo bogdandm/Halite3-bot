@@ -120,7 +120,6 @@ class Position:
         elif isinstance(other, tuple):
             return self.x == other[0] and self.y == other[1]
 
-
     def __ne__(self, other):
         return not self.__eq__(other)
 
@@ -131,8 +130,16 @@ class Position:
         return Position(self.x * other, self.y * other)
 
     def __hash__(self):
-        return hash((self.x, self.y)) ^ id(type(self))
+        return hash((self.x * 100 + self.y) ^ id(type(self)))
 
     def __iter__(self):
         yield self.x
         yield self.y
+
+    def __getitem__(self, item):
+        if item == 0:
+            return self.x
+        elif item == 1:
+            return self.y
+        else:
+            raise KeyError(item)

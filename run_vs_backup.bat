@@ -1,4 +1,4 @@
 halite.exe --replay-directory replays/ -vvv --width 46 --height 46 --"no-timeout"^
-    "python MyBot.py"^
-    "cd benchmark & python BenchmarkCollector.py"
+    "python ProfileBot.py"^
+    "python MyBot.py"
 :: --v2

@@ -3,6 +3,7 @@ from itertools import chain
 from queue import PriorityQueue
 from typing import Iterable, List, Optional, Union
 
+from bot.utils import memoized_method
 from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
@@ -210,6 +211,7 @@ class GameMap:
     def total_halite(self):
         return sum(map(operator.attrgetter("halite_amount"), iter(self)))
 
+    @memoized_method
     def distance(self, source, target):
         """
         Compute the Manhattan distance between two locations.
@@ -224,6 +226,7 @@ class GameMap:
         return min(resulting_position.x, self.width - resulting_position.x) + \
                min(resulting_position.y, self.height - resulting_position.y)
 
+    # @memoized_method
     def normalize(self, position):
         """
         Normalized the position within the bounds of the toroidal map.
@@ -233,7 +236,7 @@ class GameMap:
         :param position: A position object.
         :return: A normalized position object fitting within the bounds of the map
         """
-        if isinstance(position, tuple):
+        if not hasattr(position, 'x'):
             return Position(position[0] % self.width, position[1] % self.height)
         else:
             return Position(position.x % self.width, position.y % self.height)

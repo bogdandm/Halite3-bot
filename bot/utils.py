@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from functools import wraps
@@ -24,8 +25,22 @@ def memoized(func):
 
     @wraps(func)
     def memo(*args):
+        logging.debug((args, hash(args)))
         if args not in memory:
             memory[args] = func(*args)
+        return memory[args]
+
+    return memo
+
+
+def memoized_method(func):
+    memory = {}
+
+    @wraps(func)
+    def memo(*args):
+        self, args = args[0], args[1:]
+        if args not in memory:
+            memory[args] = func(self, *args)
         return memory[args]
 
     return memo

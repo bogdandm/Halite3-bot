@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Tuple
 
+import numpy as np
+
 from bot.bot import Bot
 from hlt import Position, constants
 from hlt.entity import Ship
@@ -104,17 +106,21 @@ class Plotter:
 
     def draw_selected(self):
         if isinstance(self.selected, Ship):
-            debug = self.bot.debug_maps.get(self.selected.id, None)
-            if not debug:
+            debug_map = self.bot.debug_maps.get(self.selected.id, None)
+            if debug_map is None:
                 self.draw_halite()
                 return
-            max_value = max(debug.values())
-            for position, halite in debug.items():
+            max_value = debug_map.max()
+            it = np.nditer(debug_map, ['multi_index'])
+            while not it.finished:
+                halite = it[0]
+                position = Position(*reversed(it.multi_index))
                 pygame.draw.rect(
                     self.screen,
                     mul_tuple((255, 255, 255), halite / max_value, integer=True),
                     pos2rect(position)
                 )
+                it.iternext()
 
     def draw_ships(self):
         for n, player in self.bot.game.players.items():
