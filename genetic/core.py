@@ -6,6 +6,11 @@ from random import shuffle
 from typing import Callable, Iterable, List, Optional, Tuple, Union
 
 import sqlalchemy as sql
+
+try:
+    from terminalplot import plot
+except ImportError:
+    plot = None
 from tqdm import tqdm
 
 from .bot_model import GenericBotArguments, compile_args
@@ -116,6 +121,11 @@ class GeneticOptimizerSqlAdapter:
         bots = Session.query(BotInstance).filter_by(generation=generation_number).all()
         return bots
 
+    def generations_stats(self):
+        stats = Session.query(sql.func.sum(BotInstance.halite).label("halite")) \
+            .group_by(BotInstance.generation).order_by(BotInstance.generation).all()
+        return [stat.halite for stat in stats]
+
     def save_game_result(self, generation_number, results: dict, bots: List[BotInstance]):
         """
         Create record for game result and update bots score
@@ -219,3 +229,11 @@ class GeneticOptimizer:
             weighted_mean = sum(v * k for v, k in zip(values, weights))
             formatted_arg = ("{:>%ds}" % max_arg_len).format(arg)
             print(f"{formatted_arg} | {float(mean):.3f} +-{float(std):.5f} (weighted: {weighted_mean:.3f})")
+
+        print("-" * 50)
+        stats = self.db.generations_stats()
+        if plot:
+            plot(range(self.g_number), stats)
+        else:
+            for i, stat in enumerate(stats):
+                print(f"{i}) {stat/1e+6:.2f}kk")
