@@ -206,10 +206,11 @@ class GeneticOptimizer:
                         pbar2.update()
                         selection = self.db.select_bots(self.core.count_2, self.core.count_4)
 
-                bots = self.db.load_generation(self.g_number)
-                self.db.save_new_generation(self.core.evolve_generation(bots, self.g_number),
-                                            self.core.bot_class.version)
-                self.g_number = self.db.last_generation
+                if self.g_number + 1 < generations:
+                    bots = self.db.load_generation(self.g_number)
+                    self.db.save_new_generation(self.core.evolve_generation(bots, self.g_number),
+                                                self.core.bot_class.version)
+                    self.g_number = self.db.last_generation
 
     def print(self):
         bots = [(bot.args_dict, bot.halite) for bot in self.db.load_generation(self.db.last_generation)]
