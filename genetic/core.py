@@ -233,7 +233,7 @@ class GeneticOptimizer:
         print("-" * 50)
         stats = self.db.generations_stats()
         if plot:
-            plot(range(self.g_number), stats)
+            plot(list(range(self.db.last_generation)), stats)
         else:
             for i, stat in enumerate(stats):
                 print(f"{i}) {stat/1e+6:.2f}kk")
