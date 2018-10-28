@@ -8,7 +8,7 @@ from typing import Callable, Iterable, List, Optional, Tuple, Union
 import sqlalchemy as sql
 
 try:
-    from terminalplot import plot
+    from asciichartpy import plot
 except ImportError:
     plot = None
 from tqdm import tqdm
@@ -233,7 +233,7 @@ class GeneticOptimizer:
         print("-" * 50)
         stats = self.db.generations_stats()
         if plot:
-            plot(list(range(self.db.last_generation)), stats)
-        else:
-            for i, stat in enumerate(stats):
+            print(plot([0] + [s / 1e+6 for s in stats]))
+            print("-" * 50)
+        for i, stat in enumerate(stats):
                 print(f"{i}) {stat/1e+6:.2f}kk")
