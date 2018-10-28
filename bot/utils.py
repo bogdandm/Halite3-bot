@@ -7,13 +7,16 @@ from functools import wraps
 class disable_print:
     def __init__(self):
         self.oldstdout = None
+        self.oldstderr = None
         self.devnull = open(os.devnull, 'w')
 
     def __enter__(self):
         self.oldstdout, sys.stdout = sys.stdout, self.devnull
+        self.oldstderr, sys.stderr = sys.stderr, self.devnull
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout = self.oldstdout
+        sys.stderr = self.oldstderr
 
 
 def mul_tuple(t: tuple, k: float, integer=False) -> tuple:
