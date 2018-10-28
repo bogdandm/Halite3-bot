@@ -206,6 +206,7 @@ class GeneticOptimizer:
                         pbar2.update()
                         selection = self.db.select_bots(self.core.count_2, self.core.count_4)
 
+                games_played = Session.query(GameResult).count()
                 if self.g_number + 1 < generations:
                     bots = self.db.load_generation(self.g_number)
                     self.db.save_new_generation(self.core.evolve_generation(bots, self.g_number),
