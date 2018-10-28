@@ -47,6 +47,7 @@ def compile_args(args: dict) -> str:
 
 
 class GenericBotArguments:
+    AMP = "&" if sys.platform.startswith("win") else "&&"
     command = None
     version = 0
 
@@ -69,9 +70,8 @@ class GenericBotArguments:
             result[key] = getattr(self, key).breed(args1[key], args2[key])
         return result
 
-
 class BotArgumentsV3(GenericBotArguments):
-    command = "cd backups/v3 & python MyBot.py --args {args}"
+    command = "cd backups/v3 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
     version = 3
 
     ship_fill_k = FloatArgument(0.2, 1.0)
