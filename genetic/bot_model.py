@@ -23,7 +23,7 @@ class FloatArgument:
         return new_percent_value * (self.max - self.min) + self.min
 
     def breed(self, x, y):
-        return self.mutate((x + y) / 2, abs(x - y) / (self.max - self.min))
+        return self.mutate((x + y) / 2, abs(x - y) / (self.max - self.min) / 2)
 
 
 class IntegerArgument(FloatArgument):

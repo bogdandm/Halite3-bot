@@ -12,7 +12,7 @@ VERSION = {
 
 def parse_args(*args):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--mutation-rate-base", default=.04, type=float)
+    parser.add_argument("-m", "--mutation-rate-base", default=.01, type=float)
     parser.add_argument("-n", "--bots-per-generation", default=24, type=int)
     parser.add_argument("-N", "--number-games", nargs=2, default=(8, 4), type=int)
     parser.add_argument("-v", "--version", default="latest")
@@ -32,7 +32,7 @@ if print_data:
 else:
     go = GeneticOptimizer(GeneticOptimizerCore(
         version(),
-        mutation_rate=lambda generation: mutation_rate_base / (generation + 1),
+        mutation_rate=mutation_rate_base,  # lambda generation: mutation_rate_base / (generation + 1),
         bots_per_generation=bots_per_generation,
         count_2=count_2,
         count_4=count_4
