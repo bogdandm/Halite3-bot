@@ -61,12 +61,11 @@ class GeneticOptimizerCore:
         mean_f = statistics.mean(halite)
         sigma_f = statistics.stdev(halite, xbar=mean_f)
         F = [
-            1 + (h - mean_f) / 2 / sigma_f
+            1 + abs(h - mean_f) / 2 / sigma_f
             for h in halite
         ]
         F_sum = sum(F)
-        P = np.fromiter((p if p >= 0 else 0 for p in (f / F_sum for f in F)), dtype=np.double)
-        P /= P.sum()
+        P = [f / F_sum for f in F]
         n = len(generation)
         choices = set(np.random.choice(
             list(range(len(generation))),
