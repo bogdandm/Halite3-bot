@@ -29,6 +29,10 @@ class BotInstance(Base):
     def __hash__(self):
         return self.id
 
+    def __repr__(self):
+        return f"<BotInstance#{self.id} h={self.halite}, games=({self.game2_count}, {self.game4_count}), " \
+               f"gen={self.generation}, args={self._args_dict}>"
+
 
 class GameResult(Base):
     __tablename__ = "games"

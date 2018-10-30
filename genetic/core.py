@@ -2,9 +2,10 @@ import operator
 import statistics
 import sys
 from queue import Queue
-from random import shuffle
-from typing import Callable, Iterable, List, Optional, Tuple, Union
+from random import randint, random, shuffle
+from typing import Any, Callable, Iterable, List, Optional, Tuple, Union
 
+import numpy as np
 import sqlalchemy as sql
 from tqdm import tqdm
 
@@ -27,15 +28,21 @@ MAP_SIZES = {
 }
 
 
+def call_or_return_value(a: Union[Any, Callable], *args, **kwargs):
+    return a(*args, **kwargs) if callable(a) else a
+
+
 class GeneticOptimizerCore:
     def __init__(self, bot_class: GenericBotArguments,
                  bots_per_generation=24, count_2=8, count_4=4,
-                 mutation_rate: Union[float, Callable[[int], float]] = .01):
+                 mutation_rate: Union[float, Callable[[int], float]] = .01,
+                 mutation_chance: Union[float, Callable[[int], float]] = .75):
         self.bot_class = bot_class
         self.bots_per_generation = bots_per_generation
         self.count_2 = count_2
         self.count_4 = count_4
         self.mutation_rate = mutation_rate
+        self.mutation_chance = mutation_chance
 
     def create_generation(self):
         """
@@ -50,21 +57,39 @@ class GeneticOptimizerCore:
         * Half is best species from old generation with some mutations
         * Another half is random children from best species with mean +- mutation values
         """
-        split = len(generation) // 2
-        top_bots = sorted(generation, reverse=True, key=operator.attrgetter("halite"))[:split]
-        top_bots2 = top_bots[:]
-        shuffle(top_bots2)
+        halite = [bot.halite for bot in generation]
+        mean_f = statistics.mean(halite)
+        sigma_f = statistics.stdev(halite, xbar=mean_f)
+        F = [
+            1 + (h - mean_f) / 2 / sigma_f
+            for h in halite
+        ]
+        F_sum = sum(F)
+        P = [f / F_sum for f in F]
+        n = len(generation)
+        choices = set(np.random.choice(
+            list(range(len(generation))),
+            randint(n // 2 - 2, n // 2 + 2),
+            replace=False, p=P
+        ))
+        top_bots = [bot for i, bot in enumerate(generation) if i in choices]
+        top_bots_P = np.fromiter((p for i, p in enumerate(P) if i in choices), dtype=float)
+        top_bots_P /= top_bots_P.sum()
 
         for bot in top_bots:
-            yield self.bot_class.mutate(
-                bot.args_dict,
-                self.mutation_rate(generation_number) if callable(self.mutation_rate) else self.mutation_rate
-            )
-        for i in range(self.bots_per_generation - split):
-            yield self.bot_class.breed(
-                top_bots[i].args_dict,
-                top_bots2[i].args_dict,
-            )
+            if random() <= call_or_return_value(self.mutation_chance, generation_number):
+                yield self.bot_class.mutate(
+                    bot.args_dict,
+                    call_or_return_value(self.mutation_rate, generation_number)
+                )
+            else:
+                yield bot.args_dict
+
+        n = self.bots_per_generation - len(top_bots)
+        parents_1 = np.random.choice(top_bots, n, p=top_bots_P)
+        parents_2 = np.random.choice(generation, n, replace=False)
+        for p1, p2 in zip(parents_1, parents_2):
+            yield self.bot_class.breed(p1.args_dict, p2.args_dict)
 
     def run_game(self, bots: List[BotInstance]) -> dict:
         """
