@@ -65,7 +65,8 @@ class GeneticOptimizerCore:
             for h in halite
         ]
         F_sum = sum(F)
-        P = [f / F_sum for f in F]
+        P = np.fromiter((p if p >= 0 else 0 for p in (f / F_sum for f in F)), dtype=np.double)
+        P /= P.sum()
         n = len(generation)
         choices = set(np.random.choice(
             list(range(len(generation))),
