@@ -23,18 +23,19 @@ def ship_collecting_halite_coefficient(ship, gmap):
 class Bot:
     def __init__(
             self,
-            distance_penalty_k=1.3,
             ship_fill_k=.7,
+            distance_penalty_k=1.3,
             ship_limit=30,
             ship_spawn_stop_turn=.5,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
+            lookup_radius=20 if LOCAL else 25,
             turn_time_warning=1.8,
             ship_limit_scaling=1  # ship_limit_scaling + 1 multiplier on large map
     ):
-        self.distance_penalty_k = distance_penalty_k
         self.ship_fill_k_base = ship_fill_k
+        self.distance_penalty_k = distance_penalty_k
         self.ship_limit_base = ship_limit
         self.ship_limit = self.ship_limit_base
         self.ship_turns_stop = ship_spawn_stop_turn
@@ -42,6 +43,7 @@ class Bot:
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
         self.stay_still_bonus = None
+        self.lookup_radius = lookup_radius
         self.turn_time_warning = turn_time_warning
         self.ship_limit_scaling = ship_limit_scaling
 
@@ -56,29 +58,21 @@ class Bot:
         self.debug_maps = {}
 
     def run(self):
+        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
+        logging.info("Player ID: {}.".format(self.game.my_id))
+
+        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
+        self.ship_limit = round(
+            self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
+        )
+        if len(self.game.players) == 4:
+            self.ship_limit //= 1.2
+
         map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
         self.mask = map_creator()
         self.per_ship_mask = map_creator()
         self.blurred_halite = map_creator()
         self.weights = map_creator()
-
-        self.ship_limit = round(
-            self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
-        )
-
-        self.distances = np.zeros((self.game.map.width, self.game.map.height))
-        #       lambda d: 3.0 * (1 - math.e ** -((d / 2.0) ** 2)) + 1.0 + d
-        d_map = lambda d: (d + 1) ** self.distance_penalty_k
-        for x in range(self.game.map.width):
-            for y in range(self.game.map.height):
-                self.distances[y][x] = d_map(self.game.map.distance((0, 0), (x, y)))
-
-        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
-        logging.info("Player ID: {}.".format(self.game.my_id))
-
-        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
-        if len(self.game.players) == 4:
-            self.ship_limit //= 1.2
 
         while True:
             time1 = time.time()
@@ -182,6 +176,9 @@ class Bot:
                     continue
 
                 position = None
+                # if gmap.width // 2 - 1 > self.lookup_radius:
+                #     field = ship.position.get_surrounding_cardinals(self.lookup_radius, center=True)
+                # else:
                 for coord in map(operator.attrgetter('position'), gmap):
                     self.weights[coord.y][coord.x] = gmap[coord].halite_amount
 
@@ -190,10 +187,18 @@ class Bot:
                     self.weights *= self.blurred_halite / 2 + .5
                 self.weights *= self.mask
                 self.weights *= self.per_ship_mask
-                distances = np.roll(self.distances, ship.position.y, axis=0)
-                distances = np.roll(distances, ship.position.x, axis=1)
-                self.weights /= distances
-                self.weights[ship.position.y][ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
+                it = np.nditer(self.weights, ['multi_index'], ['readwrite'])
+                while not it.finished:
+                    y, x = it.multi_index
+                    distance = gmap.distance(ship.position, (x, y))
+                    if distance:
+                        # Distance penalty
+                        # TODO: Experiment with A* algorithm
+                        it[0] /= (distance + 1) ** self.distance_penalty_k
+                    else:
+                        # Revert "same point penalty" of current ship
+                        it[0] /= ship_collecting_halite_coefficient(ship, gmap)
+                    it.iternext()
 
                 if self.callbacks:
                     self.debug_maps[ship.id] = self.weights.copy()
@@ -253,7 +258,7 @@ class Bot:
         distances = sorted(distances)
         if len(distances) > 10:
             distances = distances[:-4]
-        if constants.MAX_TURNS - self.game.turn_number + 5 >= distances[-1]:
+        if constants.MAX_TURNS - self.game.turn_number + 2 >= distances[-1]:
             self.collect_ships_stage_started = True
             return True
 

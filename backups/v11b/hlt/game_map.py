@@ -3,6 +3,7 @@ from itertools import chain
 from queue import PriorityQueue
 from typing import Iterable, List, Optional, Union
 
+from bot.utils import memoized_method
 from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
@@ -210,7 +211,7 @@ class GameMap:
     def total_halite(self):
         return sum(map(operator.attrgetter("halite_amount"), iter(self)))
 
-    # @memoized_method
+    @memoized_method
     def distance(self, source, target):
         """
         Compute the Manhattan distance between two locations.
@@ -301,7 +302,7 @@ class GameMap:
 
         return Direction.Still
 
-    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True, move_penalty=10):
+    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True):
         total_halite = self.total_halite
         halite_estimated_per_cell = total_halite / self.width / self.height / constants.MOVE_COST_RATIO / 2
 
@@ -317,7 +318,7 @@ class GameMap:
 
             for direction in Direction.All:
                 next_node = self.normalize(current + direction)
-                new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO + move_penalty
+                new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO
                 if ignore_ships is False and self[next_node].is_occupied:
                     new_cost += constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
                 if next_node not in closed or new_cost < closed[next_node]:
