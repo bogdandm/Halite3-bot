@@ -1,6 +1,6 @@
 import sys
 
-CELL_SIZE = 10
+CELL_SIZE = 20
 FPS = 5
 DEFAULT_SPEEDUP = 1
 

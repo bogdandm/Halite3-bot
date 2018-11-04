@@ -17,7 +17,7 @@ disabled = False
 
 def disable_pr():
     global disabled, pr
-    if bot.game.turn_number == 90:
+    if bot.game.turn_number == 300:
         disabled = True
         pr.disable()
         pr.dump_stats("profile.pstat")

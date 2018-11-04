@@ -1,18 +1,16 @@
 import logging
-import math
 import operator
 import time
-from itertools import combinations
+from collections import defaultdict
+from itertools import chain, combinations
 from random import shuffle
 from typing import Dict, Iterable, List, Set, Tuple
-
-import numpy as np
-from scipy.ndimage import gaussian_filter
 
 import hlt
 from hlt import Direction, Position, constants
 from hlt.entity import Ship
 from .const import LOCAL, V2
+from .gaussian_blur import blur
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -25,15 +23,17 @@ class Bot:
     def __init__(
             self,
             ship_fill_k=.7,
+            distance_penalty_k=1.3,
             ship_limit=30,
             ship_spawn_stop_turn=.5,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
-            turn_time_warning=1.8,
-            ship_limit_scaling=1  # ship_limit_scaling + 1 multiplier on large map
+            lookup_radius=20 if LOCAL else 25,
+            turn_time_warning=1.8
     ):
         self.ship_fill_k_base = ship_fill_k
+        self.distance_penalty_k = distance_penalty_k
         self.ship_limit_base = ship_limit
         self.ship_limit = self.ship_limit_base
         self.ship_turns_stop = ship_spawn_stop_turn
@@ -41,8 +41,8 @@ class Bot:
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
         self.stay_still_bonus = None
+        self.lookup_radius = lookup_radius
         self.turn_time_warning = turn_time_warning
-        self.ship_limit_scaling = ship_limit_scaling
 
         self.game = hlt.Game()
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
@@ -55,29 +55,11 @@ class Bot:
         self.debug_maps = {}
 
     def run(self):
-        map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
-        self.mask = map_creator()
-        self.per_ship_mask = map_creator()
-        self.blurred_halite = map_creator()
-        self.weights = map_creator()
-
-        self.ship_limit = round(
-            self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
-        )
-
-        self.distances = np.zeros((self.game.map.width, self.game.map.height))
-        if V2:
-            d_map = lambda d: 9.0 * (1 - math.e ** -((d / 4.0) ** 2)) + 1 + d / 2
-        else:
-            d_map = lambda d: d ** 1.3
-        for x in range(self.game.map.width):
-            for y in range(self.game.map.height):
-                self.distances[y][x] = d_map(self.game.map.distance((0, 0), (x, y)))
-
         self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
+        self.ship_limit = round(self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32)))
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -126,27 +108,30 @@ class Bot:
         # * enemy ship penalty
         # * penalty for cells around enemy ships (4 directions)
         # * friendly dynamic penalty based on ship cargo / cell halite ratio
-        self.mask.fill(1.)
+        mask = defaultdict(lambda: 1)
         for player in self.game.players.values():
             for ship in player.get_ships():
                 if player is not me:
-                    self.mask[ship.position.y][ship.position.x] *= self.enemy_ship_penalty
+                    mask[ship.position] *= self.enemy_ship_penalty
                     for dir in Direction.All:
-                        pos = gmap.normalize(ship.position + dir)
-                        self.mask[pos.y][pos.x] *= self.enemy_ship_nearby_penalty
+                        mask[gmap.normalize(ship.position + dir)] *= self.enemy_ship_nearby_penalty
                 else:
-                    self.mask[ship.position.y][ship.position.x] *= ship_collecting_halite_coefficient(ship, gmap)
+                    mask[ship.position] *= ship_collecting_halite_coefficient(ship, gmap)
+        self.debug_maps["mask"] = mask
 
         if not self.fast_mode:
-            for y, row in enumerate(gmap.cells):
-                for x, cell in enumerate(row):
-                    self.blurred_halite[y][x] = cell.halite_amount
-            self.blurred_halite = gaussian_filter(self.blurred_halite, sigma=2, truncate=2.0, mode='wrap')
-            gbh_min, gbh_max = self.blurred_halite.min(), self.blurred_halite.max()
-            self.blurred_halite -= gbh_min
-            self.blurred_halite /= gbh_max - gbh_min
-            if self.callbacks:
-                self.debug_maps["gbh_norm"] = self.blurred_halite
+            gaussian_blurred_halite = blur([
+                [cell.halite_amount for cell in row]
+                for row in gmap.cells
+            ], 2, 5)
+            gbh_min, gbh_max = min(chain(*gaussian_blurred_halite)), max(chain(*gaussian_blurred_halite))
+            gbh_norm: List[List[float]] = [
+                [(value - gbh_min) / (gbh_max - gbh_min) for value in row]
+                for row in gaussian_blurred_halite
+            ]
+            self.debug_maps["gbh_norm"] = gbh_norm
+        else:
+            gbh_norm = None
 
         # Generate moves for ships from mask and halite field
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
@@ -168,13 +153,25 @@ class Bot:
                 ))
 
             else:
-                self.per_ship_mask.fill(1.0)
+                per_ship_mask = defaultdict(lambda: 1)
                 for another_ship, target in self.ships_targets.items():
                     if isinstance(target, list):
                         target = target[0]
                     if another_ship is ship or target is None or target == home:
                         continue
-                    self.per_ship_mask[target[1]][target[0]] *= self.same_target_penalty
+                    # Penalty for preventing long queues to happen
+                    # if V2:
+                    #     # Based on distance difference
+                    #     ship_distance = gmap.calculate_distance(ship.position, target)
+                    #     another_ship_distance = gmap.calculate_distance(another_ship.position, target)
+                    #     k = ship_distance / another_ship_distance if another_ship_distance else 1
+                    #     # logging.debug(
+                    #     #     f"#{str(another_ship):50} -> {str(target):16} "
+                    #     #     f"{k:.2f} ({ship_distance:2d} / {another_ship_distance:2d})"
+                    #     # )
+                    #     per_ship_mask[target] *= 1 if k <= .9 else (self.same_target_penalty ** k)
+                    # else:
+                    per_ship_mask[target] *= self.same_target_penalty
 
                 # Ship has too low halite to move
                 if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
@@ -183,25 +180,36 @@ class Bot:
                     continue
 
                 position = None
-                for coord in map(operator.attrgetter('position'), gmap):
-                    self.weights[coord.y][coord.x] = gmap[coord].halite_amount
+                if gmap.width // 2 - 1 > self.lookup_radius:
+                    field = map(
+                        gmap.normalize,
+                        ship.position.get_surrounding_cardinals(self.lookup_radius, center=True)
+                    )
+                else:
+                    field = map(operator.attrgetter('position'), gmap)
+                surrounding = {coord: gmap[coord].halite_amount for coord in field}
 
                 # Apply masks
-                if not self.fast_mode:
-                    self.weights *= self.blurred_halite / 2 + .5
-                self.weights *= self.mask
-                self.weights *= self.per_ship_mask
-                distances = np.roll(self.distances, ship.position.y, axis=0)
-                distances = np.roll(distances, ship.position.x, axis=1)
-                self.weights /= distances + .1
-                self.weights[ship.position.y][ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
+                for coord in surrounding:
+                    if gbh_norm:
+                        surrounding[coord] *= gbh_norm[coord.y][coord.x] / 2 + .5
+                    surrounding[coord] *= mask[coord]
+                    surrounding[coord] *= per_ship_mask[coord]
+                    # surrounding[coord] /= 1 + 1 / constants.MOVE_COST_RATIO
+                    distance = gmap.distance(ship.position, coord)
+                    if distance:
+                        # Distance penalty
+                        # TODO: Experiment with A* algorithm
+                        surrounding[coord] /= (distance + 1) ** self.distance_penalty_k
+                    else:
+                        # Revert "same point penalty" of current ship
+                        surrounding[coord] /= ship_collecting_halite_coefficient(ship, gmap)
+                        # surrounding[coord] *= self.stay_still_bonus
 
-                if self.callbacks:
-                    self.debug_maps[ship.id] = self.weights.copy()
+                self.debug_maps[ship.id] = surrounding
 
                 # Found max point
-                y, x = np.unravel_index(self.weights.argmax(), self.weights.shape)
-                max_halite: Tuple[Position, int] = (Position(x, y), self.weights[y][x])
+                max_halite: Tuple[Position, int] = max(surrounding.items(), key=operator.itemgetter(1))
                 if max_halite[1] > 0.1:
                     position = max_halite[0]
 
@@ -245,7 +253,7 @@ class Bot:
     def collect_ships_stage(self):
         if self.collect_ships_stage_started:
             return True
-        if self.game.turn_number + 5 < constants.MAX_TURNS - self.game.map.width / 2:
+        if self.game.turn_number + 10 < constants.MAX_TURNS - self.game.map.width / 2:
             return False
         me = self.game.me
         gmap = self.game.map

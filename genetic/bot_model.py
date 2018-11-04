@@ -77,8 +77,8 @@ class BotArgumentsV3(GenericBotArguments):
     ship_fill_k = FloatArgument(0.2, 1.0)
 
 
-class BotArguments(BotArgumentsV3):
-    command = "python MyBot.py --args {args}"
+class BotArgumentsV11(BotArgumentsV3):
+    command = "cd backups/v11 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
     version = 11
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
@@ -88,4 +88,17 @@ class BotArguments(BotArgumentsV3):
     enemy_ship_nearby_penalty = FloatArgument(0.0, 1.0)
     same_target_penalty = FloatArgument(0.0, 1.0)
     lookup_radius = IntegerArgument(5, 25)
+    ship_limit_scaling = FloatArgument(0.0, 2.0)
+
+
+class BotArguments(GenericBotArguments):
+    command = "python MyBot.py --args {args}"
+    version = 12
+
+    ship_fill_k = FloatArgument(0.2, 1.0)
+    ship_limit = IntegerArgument(10, 100)
+    ship_spawn_stop_turn = FloatArgument(0.3, 1.0)
+    enemy_ship_penalty = FloatArgument(0.0, 1.0)
+    enemy_ship_nearby_penalty = FloatArgument(0.0, 1.0)
+    same_target_penalty = FloatArgument(0.0, 1.0)
     ship_limit_scaling = FloatArgument(0.0, 2.0)

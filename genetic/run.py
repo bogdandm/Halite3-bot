@@ -1,11 +1,12 @@
 import argparse
 import sys
 
-from .bot_model import BotArguments, BotArgumentsV3
+from .bot_model import BotArguments, BotArgumentsV11, BotArgumentsV3
 from .core import GeneticOptimizer, GeneticOptimizerCore
 
 VERSION = {
     "latest": BotArguments,
+    "v11": BotArgumentsV11,
     "v3": BotArgumentsV3
 }
 
