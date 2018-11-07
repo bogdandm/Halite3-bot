@@ -253,7 +253,7 @@ class Bot:
         distances = sorted(distances)
         if len(distances) > 10:
             distances = distances[:-4]
-        if constants.MAX_TURNS - self.game.turn_number + 5 >= distances[-1]:
+        if not distances or constants.MAX_TURNS - self.game.turn_number + 5 >= distances[-1]:
             self.collect_ships_stage_started = True
             return True
 
