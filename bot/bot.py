@@ -1,5 +1,4 @@
 import logging
-import operator
 import time
 from itertools import combinations
 from random import shuffle
@@ -66,7 +65,7 @@ class Bot:
             self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
         )
 
-        self.distances = np.zeros((self.game.map.width, self.game.map.height))
+        self.distances = np.zeros((self.game.map.width, self.game.map.height), dtype=float)
         #       lambda d: 3.0 * (1 - math.e ** -((d / 2.0) ** 2)) + 1.0 + d
         d_map = lambda d: (d + 1) ** self.distance_penalty_k
         for x in range(self.game.map.width):
@@ -129,18 +128,15 @@ class Bot:
         for player in self.game.players.values():
             for ship in player.get_ships():
                 if player is not me:
-                    self.mask[ship.position.y][ship.position.x] *= self.enemy_ship_penalty
+                    self.mask[ship.position.y, ship.position.x] *= self.enemy_ship_penalty
                     for dir in Direction.All:
                         pos = gmap.normalize(ship.position + dir)
-                        self.mask[pos.y][pos.x] *= self.enemy_ship_nearby_penalty
+                        self.mask[pos.y, pos.x] *= self.enemy_ship_nearby_penalty
                 else:
-                    self.mask[ship.position.y][ship.position.x] *= ship_collecting_halite_coefficient(ship, gmap)
+                    self.mask[ship.position.y, ship.position.x] *= ship_collecting_halite_coefficient(ship, gmap)
 
         if not self.fast_mode:
-            for y, row in enumerate(gmap.cells):
-                for x, cell in enumerate(row):
-                    self.blurred_halite[y][x] = cell.halite_amount
-            self.blurred_halite = gaussian_filter(self.blurred_halite, sigma=2, truncate=2.0, mode='wrap')
+            self.blurred_halite = gaussian_filter(gmap.halite, sigma=2, truncate=2.0, mode='wrap')
             gbh_min, gbh_max = self.blurred_halite.min(), self.blurred_halite.max()
             self.blurred_halite -= gbh_min
             self.blurred_halite /= gbh_max - gbh_min
@@ -173,7 +169,7 @@ class Bot:
                         target = target[0]
                     if another_ship is ship or target is None or target == home:
                         continue
-                    self.per_ship_mask[target[1]][target[0]] *= self.same_target_penalty
+                    self.per_ship_mask[target[1], target[0]] *= self.same_target_penalty
 
                 # Ship has too low halite to move
                 if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
@@ -182,8 +178,7 @@ class Bot:
                     continue
 
                 position = None
-                for coord in map(operator.attrgetter('position'), gmap):
-                    self.weights[coord.y][coord.x] = gmap[coord].halite_amount
+                self.weights[:, :] = gmap.halite[:, :]
 
                 # Apply masks
                 if not self.fast_mode:
@@ -193,14 +188,14 @@ class Bot:
                 distances = np.roll(self.distances, ship.position.y, axis=0)
                 distances = np.roll(distances, ship.position.x, axis=1)
                 self.weights /= distances
-                self.weights[ship.position.y][ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
+                self.weights[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
 
                 if self.callbacks:
                     self.debug_maps[ship.id] = self.weights.copy()
 
                 # Found max point
                 y, x = np.unravel_index(self.weights.argmax(), self.weights.shape)
-                max_halite: Tuple[Position, int] = (Position(x, y), self.weights[y][x])
+                max_halite: Tuple[Position, int] = (Position(x, y), self.weights[y, x])
                 if max_halite[1] > 0.1:
                     position = max_halite[0]
 

@@ -3,6 +3,8 @@ from itertools import chain
 from queue import PriorityQueue
 from typing import Iterable, List, Optional, Union
 
+import numpy as np
+
 from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
@@ -89,7 +91,7 @@ class MapCell:
     def __init__(self, position, halite_amount):
         self.position = position
         self.halite_amount = halite_amount
-        self.ship = None
+        self.ship: Ship = None
         self.structure = None
 
     @property
@@ -175,10 +177,14 @@ class GameMap:
     Coordinates start at 0. Coordinates are normalized for you
     """
 
-    def __init__(self, cells, width, height):
+    def __init__(self, cells: List[List[MapCell]], width, height):
         self.width = width
         self.height = height
         self._cells = cells
+        self.halite = np.empty((height, width), dtype=float)
+        for y, row in enumerate(cells):
+            for x, cell in enumerate(row):
+                self.halite[y][x] = cell.halite_amount
 
     def __getitem__(self, location) -> Optional[Union['MapCell', Iterable['MapCell']]]:
         """
@@ -341,12 +347,14 @@ class GameMap:
         :return: The map object
         """
         map_width, map_height = map(int, read_input().split())
-        game_map = [[None for _ in range(map_width)] for _ in range(map_height)]
+        game_map: List[List[MapCell]] = [[None for _ in range(map_width)] for _ in range(map_height)]
         for y_position in range(map_height):
             cells = read_input().split()
             for x_position in range(map_width):
-                game_map[y_position][x_position] = MapCell(Position(x_position, y_position),
-                                                           int(cells[x_position]))
+                game_map[y_position][x_position] = MapCell(
+                    Position(x_position, y_position),
+                    int(cells[x_position])
+                )
         return GameMap(game_map, map_width, map_height)
 
     def _update(self):
@@ -356,10 +364,11 @@ class GameMap:
         """
         # Mark cells as safe for navigation (will re-mark unsafe cells
         # later)
-        for y in range(self.height):
-            for x in range(self.width):
-                self[Position(x, y)].ship = None
+        for row in self.cells:
+            for cell in row:
+                cell.ship = None
 
         for _ in range(int(read_input())):
             cell_x, cell_y, cell_energy = map(int, read_input().split())
-            self[Position(cell_x, cell_y)].halite_amount = cell_energy
+            self.cells[cell_y][cell_x].halite_amount = cell_energy
+            self.halite[cell_y][cell_x] = cell_energy
