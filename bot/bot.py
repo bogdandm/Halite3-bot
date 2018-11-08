@@ -70,7 +70,7 @@ class Bot:
         d_map = lambda d: (d + 1) ** self.distance_penalty_k
         for x in range(self.game.map.width):
             for y in range(self.game.map.height):
-                self.distances[y][x] = d_map(self.game.map.distance((0, 0), (x, y)))
+                self.distances[y, x] = d_map(self.game.map.distance((0, 0), (x, y)))
 
         self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))

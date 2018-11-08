@@ -69,6 +69,8 @@ class Direction:
 
 
 class Position:
+    hash_salt = None
+
     def __init__(self, x, y):
         self.x = x
         self.y = y
@@ -130,7 +132,7 @@ class Position:
         return Position(self.x * other, self.y * other)
 
     def __hash__(self):
-        return hash((self.x * 100 + self.y) ^ id(type(self)))
+        return hash((self.x * 100 + self.y) ^ self.hash_salt)
 
     def __iter__(self):
         yield self.x
@@ -143,3 +145,6 @@ class Position:
             return self.y
         else:
             raise KeyError(item)
+
+
+Position.hash_salt = id(type(Position))
