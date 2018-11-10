@@ -30,7 +30,8 @@ class Bot:
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
             turn_time_warning=1.8,
-            ship_limit_scaling=1  # ship_limit_scaling + 1 multiplier on large map
+            ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map,
+            halite_threshold=1 / 20
     ):
         self.distance_penalty_k = distance_penalty_k
         self.ship_fill_k_base = ship_fill_k
@@ -40,9 +41,10 @@ class Bot:
         self.enemy_ship_penalty = enemy_ship_penalty
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
-        self.stay_still_bonus = None
         self.turn_time_warning = turn_time_warning
         self.ship_limit_scaling = ship_limit_scaling
+        self.halite_threshold = halite_threshold
+        self.stay_still_bonus = None
 
         self.game = hlt.Game()
         self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
@@ -59,7 +61,8 @@ class Bot:
         self.mask = map_creator()
         self.per_ship_mask = map_creator()
         self.blurred_halite = map_creator()
-        self.weights = map_creator()
+        self.filtered_halite = map_creator()
+        self.weighted_halite = map_creator()
 
         self.ship_limit = round(
             self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
@@ -143,6 +146,11 @@ class Bot:
             if self.callbacks:
                 self.debug_maps["gbh_norm"] = self.blurred_halite
 
+        max_halite: float = gmap.halite.max()
+        self.filtered_halite[:, :] = gmap.halite[:, :]
+        if V2:
+            self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
+
         # Generate moves for ships from mask and halite field
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
         for ship in my_ships:
@@ -178,24 +186,24 @@ class Bot:
                     continue
 
                 position = None
-                self.weights[:, :] = gmap.halite[:, :]
+                self.weighted_halite[:, :] = self.filtered_halite[:, :]
 
                 # Apply masks
                 if not self.fast_mode:
-                    self.weights *= self.blurred_halite / 2 + .5
-                self.weights *= self.mask
-                self.weights *= self.per_ship_mask
+                    self.weighted_halite *= self.blurred_halite / 2 + .5
+                self.weighted_halite *= self.mask
+                self.weighted_halite *= self.per_ship_mask
                 distances = np.roll(self.distances, ship.position.y, axis=0)
                 distances = np.roll(distances, ship.position.x, axis=1)
-                self.weights /= distances
-                self.weights[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
+                self.weighted_halite /= distances
+                self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
 
                 if self.callbacks:
-                    self.debug_maps[ship.id] = self.weights.copy()
+                    self.debug_maps[ship.id] = self.weighted_halite.copy()
 
                 # Found max point
-                y, x = np.unravel_index(self.weights.argmax(), self.weights.shape)
-                max_halite: Tuple[Position, int] = (Position(x, y), self.weights[y, x])
+                y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
+                max_halite: Tuple[Position, int] = (Position(x, y), self.weighted_halite[y, x])
                 if max_halite[1] > 0.1:
                     position = max_halite[0]
 
