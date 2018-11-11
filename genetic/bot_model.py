@@ -47,7 +47,7 @@ def compile_args(args: dict) -> str:
 
 
 def replace_python(cmd):
-    return cmd.replace("python", f'"{sys.executable}"')
+    return cmd.replace("python", f"'{sys.executable}'")
 
 class GenericBotArguments:
     AMP = "&" if sys.platform.startswith("win") else "&&"
