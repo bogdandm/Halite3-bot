@@ -46,9 +46,6 @@ def compile_args(args: dict) -> str:
     return filename
 
 
-def replace_python(cmd):
-    return cmd.replace("python", f"'{sys.executable}'")
-
 class GenericBotArguments:
     AMP = "&" if sys.platform.startswith("win") else "&&"
     command = None
@@ -75,14 +72,14 @@ class GenericBotArguments:
 
 
 class BotArgumentsV3(GenericBotArguments):
-    command = replace_python("cd backups/v3 %s python MyBot.py --args {args}" % GenericBotArguments.AMP)
+    command = "cd backups/v3 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
     version = 3
 
     ship_fill_k = FloatArgument(0.2, 1.0)
 
 
 class BotArgumentsV11(BotArgumentsV3):
-    command = replace_python("cd backups/v11 %s python MyBot.py --args {args}" % GenericBotArguments.AMP)
+    command = "cd backups/v11 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
     version = 11
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
@@ -96,7 +93,7 @@ class BotArgumentsV11(BotArgumentsV3):
 
 
 class BotArgumentsV12(GenericBotArguments):
-    command = replace_python("cd backups/v12 %s python MyBot.py --args {args}")
+    command = "cd backups/v12 %s python MyBot.py --args {args}"
     version = 12
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
@@ -110,7 +107,7 @@ class BotArgumentsV12(GenericBotArguments):
 
 
 class BotArguments(GenericBotArguments):
-    command = replace_python("python MyBot.py --args {args}")
+    command = "python MyBot.py --args {args}"
     version = 13
 
     potential_gauss_sigma = FloatArgument(2.0, 10.0)

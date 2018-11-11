@@ -151,18 +151,15 @@ class Bot:
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
         bases = {home, *(base.position for base in me.get_dropoffs())}
 
-        if V2:
-            # Check whether new dropoff can be created or not
-            if self.building_dropoff is None:
-                if self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
-                        and me.halite_amount > constants.DROPOFF_COST:
-                    dropoff_position, dropoff_ship = self.dropoff_builder()
-                else:
-                    dropoff_position, dropoff_ship = None, None
+        # Check whether new dropoff can be created or not
+        if self.building_dropoff is None:
+            if self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
+                    and me.halite_amount > constants.DROPOFF_COST:
+                dropoff_position, dropoff_ship = self.dropoff_builder()
             else:
-                dropoff_position, dropoff_ship = self.building_dropoff
+                dropoff_position, dropoff_ship = None, None
         else:
-            dropoff_position, dropoff_ship = None, None
+            dropoff_position, dropoff_ship = self.building_dropoff
 
         if dropoff_ship is not None and dropoff_position is not None:
             if dropoff_ship.position == dropoff_position:
