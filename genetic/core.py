@@ -109,7 +109,8 @@ class GeneticOptimizerCore:
             "halite.exe" if sys.platform.startswith("win") else "./halite",
             [self.bot_class.command.format(args=compile_args(bot.args_dict))
              for bot in bots],
-            map_width=map_size, map_height=map_size
+            map_width=map_size, map_height=map_size,
+            game_output_dir="./replays/"
         )
         return result
 

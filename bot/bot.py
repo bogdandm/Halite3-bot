@@ -40,8 +40,16 @@ class Bot:
             enemy_ship_nearby_penalty=.6,
             same_target_penalty=.7,
             turn_time_warning=1.8,
-            ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map,
-            halite_threshold=1 / 20
+            ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map
+            halite_threshold=1 / 20,
+
+            potential_gauss_sigma=6.,
+            contour_k=.4,
+            dropoff_threshold=.02,
+            dropoff_my_ship=1,
+            dropoff_enemy_ship=-.1,
+            dropoff_my_base=-75,
+            dropoff_enemy_base=-30
     ):
         self.distance_penalty_k = distance_penalty_k
         self.ship_fill_k_base = ship_fill_k
@@ -56,6 +64,14 @@ class Bot:
         self.ship_limit_scaling = ship_limit_scaling
         self.halite_threshold = halite_threshold
         self.stay_still_bonus = None
+
+        self.potential_gauss_sigma = potential_gauss_sigma
+        self.contour_k = contour_k
+        self.dropoff_threshold = dropoff_threshold
+        self.dropoff_my_ship = dropoff_my_ship
+        self.dropoff_enemy_ship = dropoff_enemy_ship
+        self.dropoff_my_base = dropoff_my_base
+        self.dropoff_enemy_base = dropoff_enemy_base
 
         self.game = hlt.Game()
         self.ships_targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
@@ -297,15 +313,6 @@ class Bot:
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
-        POTENTIAL_GAUSS_SIGMA = 6.
-        CONTOUR_K = .4
-        THRESHOLD = .02
-
-        MY_SHIP = 1
-        ENEMY_SHIP = -.1
-        MY_BASE = -75
-        ENEMY_BASE = -30
-
         MIN_HALITE_PER_REGION = 16000
 
         gmap = self.game.map
@@ -320,7 +327,7 @@ class Bot:
         halite_ex_gb = gaussian_filter(halite_ex, sigma=GAUSS_SIGMA, truncate=2.0, mode='wrap')
 
         # Find contours of high halite deposits
-        contours = msr.find_contours(halite_ex_gb, halite_ex_gb.max() * CONTOUR_K, fully_connected="high")
+        contours = msr.find_contours(halite_ex_gb, halite_ex_gb.max() * self.contour_k, fully_connected="high")
         masks = [poly2mask(c[:, 0], c[:, 1], halite_ex.shape) for c in contours]
 
         # Remove small halite chunks
@@ -345,12 +352,18 @@ class Bot:
         for player in self.game.players.values():
             me = player is self.game.me
             for ship in player.get_ships():
-                potential_field[ship.position.y, ship.position.x] += MY_SHIP if me else ENEMY_SHIP
+                if me:
+                    potential_field[ship.position.y, ship.position.x] += self.dropoff_my_ship
+                else:
+                    potential_field[ship.position.y, ship.position.x] += self.dropoff_enemy_ship
             for base in player.get_dropoffs():
-                potential_field[base.position.y, base.position.x] += MY_BASE if me else ENEMY_BASE
+                if me:
+                    potential_field[base.position.y, base.position.x] += self.dropoff_my_base
+                else:
+                    potential_field[base.position.y, base.position.x] += self.dropoff_enemy_base
             pos = player.shipyard.position
-            potential_field[pos.y, pos.x] += MY_BASE if me else ENEMY_BASE
-        potential_field = gaussian_filter(potential_field, sigma=POTENTIAL_GAUSS_SIGMA, truncate=3.0, mode='wrap')
+            potential_field[pos.y, pos.x] += self.dropoff_my_base if me else self.dropoff_enemy_base
+        potential_field = gaussian_filter(potential_field, sigma=self.potential_gauss_sigma, truncate=3.0, mode='wrap')
 
         if self.callbacks:
             self.debug_maps['dropoff'] = potential_field
@@ -364,7 +377,7 @@ class Bot:
         y, x = np.unravel_index(potential_field_filtered.argmax(), potential_field_filtered.shape)
         value = potential_field_filtered[y, x]
         logging.debug(f"DROPOFF -> {value:.6f}")
-        if value < THRESHOLD:
+        if value < self.dropoff_threshold:
             return None, None
 
         ships = self.game.me.get_ships()

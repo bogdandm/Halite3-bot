@@ -46,6 +46,9 @@ def compile_args(args: dict) -> str:
     return filename
 
 
+def replace_python(cmd):
+    cmd.replace("python", f'"{sys.executable}"')
+
 class GenericBotArguments:
     AMP = "&" if sys.platform.startswith("win") else "&&"
     command = None
@@ -70,15 +73,16 @@ class GenericBotArguments:
             result[key] = getattr(self, key).breed(args1[key], args2[key])
         return result
 
+
 class BotArgumentsV3(GenericBotArguments):
-    command = "cd backups/v3 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
+    command = replace_python("cd backups/v3 %s python MyBot.py --args {args}" % GenericBotArguments.AMP)
     version = 3
 
     ship_fill_k = FloatArgument(0.2, 1.0)
 
 
 class BotArgumentsV11(BotArgumentsV3):
-    command = "cd backups/v11 %s python MyBot.py --args {args}" % GenericBotArguments.AMP
+    command = replace_python("cd backups/v11 %s python MyBot.py --args {args}" % GenericBotArguments.AMP)
     version = 11
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
@@ -91,8 +95,8 @@ class BotArgumentsV11(BotArgumentsV3):
     ship_limit_scaling = FloatArgument(0.0, 2.0)
 
 
-class BotArguments(GenericBotArguments):
-    command = "python MyBot.py --args {args}"
+class BotArgumentsV12(GenericBotArguments):
+    command = replace_python("cd backups/v12 %s python MyBot.py --args {args}")
     version = 12
 
     distance_penalty_k = FloatArgument(0.0, 2.0)
@@ -103,3 +107,15 @@ class BotArguments(GenericBotArguments):
     enemy_ship_nearby_penalty = FloatArgument(0.0, 1.0)
     same_target_penalty = FloatArgument(0.0, 1.0)
     ship_limit_scaling = FloatArgument(0.0, 2.0)
+
+
+class BotArguments(GenericBotArguments):
+    command = replace_python("python MyBot.py --args {args}")
+    version = 13
+
+    potential_gauss_sigma = FloatArgument(2.0, 10.0)
+    contour_k = FloatArgument(0.2, 0.9)
+    dropoff_my_ship = FloatArgument(0.5, 10.0)
+    dropoff_enemy_ship = FloatArgument(-10.0, -0.5)
+    dropoff_my_base = FloatArgument(-150.0, -10.0)
+    dropoff_enemy_base = FloatArgument(-150.0, -10.0)
