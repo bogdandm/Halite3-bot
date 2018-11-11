@@ -340,11 +340,11 @@ class Bot:
         points = {tuple(float(round(x)) for x in point)
                   for contour in contours
                   for point in contour}
-        if not points:
-            return None, None
         points = [list(point) for point in points
                   if all(0 <= x < h for x in point)]
         points = np.array(points, dtype=np.int)
+        if points.shape[0] == 0:
+            return None, None
 
         # Create potential field
         potential_field = np.zeros(gmap.halite.shape, dtype=np.float)
