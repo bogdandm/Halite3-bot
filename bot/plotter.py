@@ -174,7 +174,7 @@ class Plotter:
     def draw_bases(self):
         for n, player in self.bot.game.players.items():
             color = PLAYERS[n]
-            for base in (player.shipyard,):
+            for base in (player.shipyard, *player.get_dropoffs()):
                 pygame.draw.rect(
                     self.screen,
                     color,

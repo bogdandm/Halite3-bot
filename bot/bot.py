@@ -2,7 +2,7 @@ import logging
 import time
 from itertools import combinations
 from random import shuffle
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import skimage.measure as msr
@@ -33,10 +33,11 @@ class Bot:
             self,
             distance_penalty_k=1.3,
             ship_fill_k=.7,
-            ship_limit=40,
+            ship_limit=45,
             ship_spawn_stop_turn=.45,
-            enemy_ship_penalty=.1,
-            enemy_ship_nearby_penalty=.3,
+            dropoff_spawn_stop_turn=.7,
+            enemy_ship_penalty=.3,
+            enemy_ship_nearby_penalty=.6,
             same_target_penalty=.7,
             turn_time_warning=1.8,
             ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map,
@@ -47,6 +48,7 @@ class Bot:
         self.ship_limit_base = ship_limit
         self.ship_limit = self.ship_limit_base
         self.ship_turns_stop = ship_spawn_stop_turn
+        self.dropoff_spawn_stop_turn = dropoff_spawn_stop_turn
         self.enemy_ship_penalty = enemy_ship_penalty
         self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
         self.same_target_penalty = same_target_penalty
@@ -56,7 +58,8 @@ class Bot:
         self.stay_still_bonus = None
 
         self.game = hlt.Game()
-        self.ships_targets: Dict[Ship, Tuple[int, int]] = {}
+        self.ships_targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
+        self.building_dropoff: Optional[Tuple[Position, Ship]] = None
         self.ships_to_home: Set[int] = set()
         self.max_ships_reached = 0
         self.collect_ships_stage_started = False
@@ -95,12 +98,11 @@ class Bot:
             time1 = time.time()
             self.game.update_frame()
 
-            my_ships = {ship.id: ship for ship in self.game.me.get_ships()}
             # Update ships and delete destroyed ones
-            self.ships_targets = {
-                my_ships[ship.id]: target
+            self.ships_targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {
+                ship: target
                 for ship, target in self.ships_targets.items()
-                if ship.id in my_ships
+                if ship.exists
             }
 
             commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
@@ -130,6 +132,42 @@ class Bot:
         my_ships = me.get_ships()
         gmap = self.game.map
         home = self.game.me.shipyard.position
+        moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
+        bases = {home, *(base.position for base in me.get_dropoffs())}
+
+        if V2:
+            # Check whether new dropoff can be created or not
+            if self.building_dropoff is None:
+                if self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
+                        and me.halite_amount > constants.DROPOFF_COST:
+                    dropoff_position, dropoff_ship = self.dropoff_builder()
+                else:
+                    dropoff_position, dropoff_ship = None, None
+            else:
+                dropoff_position, dropoff_ship = self.building_dropoff
+        else:
+            dropoff_position, dropoff_ship = None, None
+
+        if dropoff_ship is not None and dropoff_position is not None:
+            if dropoff_ship.position == dropoff_position:
+                # If ship in place wait until we have enough halite to build dropoff
+                if me.halite_amount + dropoff_ship.halite_amount > constants.DROPOFF_COST:
+                    yield dropoff_ship.make_dropoff()
+                    me.halite_amount -= constants.DROPOFF_COST - dropoff_ship.halite_amount
+                    logging.info(f"Building dropoff {dropoff_position} from Ship#{dropoff_ship.id}")
+                    self.building_dropoff = None
+                else:
+                    yield dropoff_ship.stay_still()
+            else:
+                # Move to new dropoff position
+                self.ships_targets[dropoff_ship] = dropoff_position
+                self.building_dropoff = dropoff_position, dropoff_ship
+                logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
+                path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
+                moves.append((
+                    dropoff_ship,
+                    (gmap.normalize_direction(path[0] - dropoff_ship.position),)
+                ))
 
         # General mask
         # Contains:
@@ -157,15 +195,16 @@ class Bot:
 
         max_halite: float = gmap.halite.max()
         self.filtered_halite[:, :] = gmap.halite[:, :]
-        if V2:
-            self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
+        self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
 
         # Generate moves for ships from mask and halite field
-        moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
         for ship in my_ships:
             # Ship unloading
+            if ship == dropoff_ship:
+                continue
+
             to_home = ship in self.ships_to_home
-            if to_home and ship.position == home:
+            if to_home and ship.position in bases:
                 logging.info(f"Ship#{ship.id} unload")
                 self.ships_to_home.remove(ship)
                 to_home = False
@@ -173,7 +212,11 @@ class Bot:
             if to_home or ship.halite_amount >= constants.MAX_HALITE * self.ship_fill_k:
                 logging.info(f"Ship#{ship.id} moving home")
                 self.ships_to_home.add(ship)
-                self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, home)
+                ship_target = min(
+                    bases,
+                    key=lambda base: gmap.distance(ship.position, base)
+                )
+                self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, ship_target)
                 moves.append((
                     ship,
                     (gmap.normalize_direction(path[0] - ship.position),)
@@ -252,17 +295,16 @@ class Bot:
             else:
                 self.max_ships_reached += 1
 
-        self.dropoff_builder()
-
-    def dropoff_builder(self):
+    def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
-        POTENTIAL_GAUSS_SIGMA = 8.
+        POTENTIAL_GAUSS_SIGMA = 6.
         CONTOUR_K = .4
+        THRESHOLD = .02
 
-        MY_SHIP = 2
-        ENEMY_SHIP = -1
+        MY_SHIP = 1
+        ENEMY_SHIP = -.1
         MY_BASE = -75
-        ENEMY_BASE = -40
+        ENEMY_BASE = -30
 
         MIN_HALITE_PER_REGION = 16000
 
@@ -319,6 +361,18 @@ class Bot:
         potential_field_filtered[x, y] = potential_field[x, y]
 
         self.debug_maps['dropoff_2'] = potential_field_filtered
+        y, x = np.unravel_index(potential_field_filtered.argmax(), potential_field_filtered.shape)
+        value = potential_field_filtered[y, x]
+        logging.debug(f"DROPOFF -> {value:.6f}")
+        if value < THRESHOLD:
+            return None, None
+
+        ships = self.game.me.get_ships()
+        target = Position(x, y)
+        distance = lambda ship: gmap.distance(ship.position, target)
+        # ship_filter= lambda ship: ship.halite_amount / constants.MAX_HALITE < self.ship_fill_k * .75
+        ship = min(ships, key=distance)
+        return target, ship
 
     @property
     def collect_ships_stage(self):
