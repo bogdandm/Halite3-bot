@@ -40,7 +40,7 @@ class Bot:
             enemy_ship_nearby_penalty=.6,
             same_target_penalty=.7,
             turn_time_warning=1.8,
-            ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map
+            ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=1 / 20,
 
             potential_gauss_sigma=6.,
@@ -160,6 +160,9 @@ class Bot:
                 dropoff_position, dropoff_ship = None, None
         else:
             dropoff_position, dropoff_ship = self.building_dropoff
+            if not dropoff_ship.exists:
+                dropoff_position, dropoff_ship = None, None
+                self.building_dropoff = None
 
         if dropoff_ship is not None and dropoff_position is not None:
             if dropoff_ship.position == dropoff_position:
