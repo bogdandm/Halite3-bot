@@ -340,6 +340,8 @@ class Bot:
         points = {tuple(float(round(x)) for x in point)
                   for contour in contours
                   for point in contour}
+        if not points:
+            return None, None
         points = [list(point) for point in points
                   if all(0 <= x < h for x in point)]
         points = np.array(points, dtype=np.int)
