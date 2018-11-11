@@ -313,6 +313,7 @@ class Bot:
         MIN_HALITE_PER_REGION = 16000
 
         gmap = self.game.map
+        bases = {self.game.me.shipyard.position, *(base.position for base in self.game.me.get_dropoffs())}
         halite_ex = gmap.halite_extended.copy()
         h, w, d = gmap.height, gmap.width, 2
 
@@ -341,7 +342,7 @@ class Bot:
                   for contour in contours
                   for point in contour}
         points = [list(point) for point in points
-                  if all(0 <= x < h for x in point)]
+                  if all(0 <= x < h for x in point) and Position(*map(int, point)) not in bases]
         points = np.array(points, dtype=np.int)
         if points.shape[0] == 0:
             return None, None
