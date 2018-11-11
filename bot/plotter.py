@@ -38,6 +38,13 @@ def pos2rect(p: Position) -> Tuple[int, int, int, int]:
 
 
 class Plotter:
+    VIEWS = [
+        "__default__",
+        "gbh_norm",
+        "dropoff",
+        "dropoff_2",
+    ]
+
     def __init__(self, bot: 'Bot'):
         self.bot = bot
         self.bot.add_callback(self.run)
@@ -50,6 +57,7 @@ class Plotter:
         self.speed_up = DEFAULT_SPEEDUP
         self.pause = False
         self.selected = None
+        self.current_view = self.VIEWS[0]
 
     def run(self):
         self.clock.tick(int(FPS * self.speed_up) if not self.pause else 60)
@@ -66,10 +74,13 @@ class Plotter:
                 self.mouse_handler(e)
 
         self.screen.fill(BLACK)
-        if not self.selected:
-            self.draw_halite()
+        if self.current_view == "__default__":
+            if not self.selected:
+                self.draw_halite()
+            else:
+                self.draw_selected()
         else:
-            self.draw_selected()
+            self.drop_custom_map(self.current_view)
         self.draw_bases()
         self.draw_ships()
 
@@ -171,6 +182,24 @@ class Plotter:
                     1
                 )
 
+    def drop_custom_map(self, view):
+        debug_map = self.bot.debug_maps.get(view, None)
+        if debug_map is None:
+            self.draw_halite()
+            return
+        max_value = debug_map.max()
+        min_value = debug_map.min()
+        it = np.nditer(debug_map, ['multi_index'])
+        while not it.finished:
+            halite = it[0]
+            position = Position(*reversed(it.multi_index))
+            pygame.draw.rect(
+                self.screen,
+                mul_tuple((255, 255, 255), (halite - min_value) / (max_value - min_value), integer=True),
+                pos2rect(position)
+            )
+            it.iternext()
+
     def update_display_size(self):
         self.screen = display.set_mode(self.win_size, pygame.DOUBLEBUF | pygame.RESIZABLE)
         display.flip()
@@ -186,6 +215,13 @@ class Plotter:
                 self.speed_up *= 2
             elif e.key == pygame.K_SPACE:
                 self.pause = not self.pause
+            elif '0' <= e.unicode <= '9':
+                code = int(e.unicode)
+                if code == 0:
+                    code = 9
+                else:
+                    code -= 1
+                self.current_view = self.VIEWS[code]
 
     def mouse_handler(self, e):
         map_pos = tuple(map(int, mul_tuple(e.pos, 1 / CELL_SIZE)))

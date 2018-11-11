@@ -5,7 +5,9 @@ from random import shuffle
 from typing import Dict, Iterable, List, Set, Tuple
 
 import numpy as np
+import skimage.measure as msr
 from scipy.ndimage import gaussian_filter
+from skimage import draw
 
 import hlt
 from hlt import Direction, Position, constants
@@ -19,13 +21,20 @@ def ship_collecting_halite_coefficient(ship, gmap):
     return max((cell - ship_cargo_free) / cell, .1)
 
 
+def poly2mask(vertex_row_coords, vertex_col_coords, shape):
+    fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
+    mask = np.zeros(shape, dtype=np.bool)
+    mask[fill_row_coords, fill_col_coords] = True
+    return mask
+
+
 class Bot:
     def __init__(
             self,
             distance_penalty_k=1.3,
             ship_fill_k=.7,
-            ship_limit=30,
-            ship_spawn_stop_turn=.5,
+            ship_limit=40,
+            ship_spawn_stop_turn=.45,
             enemy_ship_penalty=.1,
             enemy_ship_nearby_penalty=.3,
             same_target_penalty=.7,
@@ -242,6 +251,74 @@ class Bot:
                 yield me.shipyard.spawn()
             else:
                 self.max_ships_reached += 1
+
+        self.dropoff_builder()
+
+    def dropoff_builder(self):
+        GAUSS_SIGMA = 2.
+        POTENTIAL_GAUSS_SIGMA = 8.
+        CONTOUR_K = .4
+
+        MY_SHIP = 2
+        ENEMY_SHIP = -1
+        MY_BASE = -75
+        ENEMY_BASE = -40
+
+        MIN_HALITE_PER_REGION = 16000
+
+        gmap = self.game.map
+        halite_ex = gmap.halite_extended.copy()
+        h, w, d = gmap.height, gmap.width, 2
+
+        # Fill map border with zeros
+        halite_ex[:d, 0:2 * w] = 0
+        halite_ex[-d:, 0:2 * w] = 0
+        halite_ex[0:2 * h, :d] = 0
+        halite_ex[0:2 * h, -d:] = 0
+        halite_ex_gb = gaussian_filter(halite_ex, sigma=GAUSS_SIGMA, truncate=2.0, mode='wrap')
+
+        # Find contours of high halite deposits
+        contours = msr.find_contours(halite_ex_gb, halite_ex_gb.max() * CONTOUR_K, fully_connected="high")
+        masks = [poly2mask(c[:, 0], c[:, 1], halite_ex.shape) for c in contours]
+
+        # Remove small halite chunks
+        good_contours = []
+        for c, m in zip(contours, masks):
+            if np.sum(np.multiply(gmap.halite_extended, m)) > MIN_HALITE_PER_REGION:
+                good_contours.append(c)
+
+        # Remove offset of contour points
+        contours = [contour - h // 2 for contour in good_contours]
+
+        # Set up possible dropoff points
+        points = {tuple(float(round(x)) for x in point)
+                  for contour in contours
+                  for point in contour}
+        points = [list(point) for point in points
+                  if all(0 <= x < h for x in point)]
+        points = np.array(points, dtype=np.int)
+
+        # Create potential field
+        potential_field = np.zeros(gmap.halite.shape, dtype=np.float)
+        for player in self.game.players.values():
+            me = player is self.game.me
+            for ship in player.get_ships():
+                potential_field[ship.position.y, ship.position.x] += MY_SHIP if me else ENEMY_SHIP
+            for base in player.get_dropoffs():
+                potential_field[base.position.y, base.position.x] += MY_BASE if me else ENEMY_BASE
+            pos = player.shipyard.position
+            potential_field[pos.y, pos.x] += MY_BASE if me else ENEMY_BASE
+        potential_field = gaussian_filter(potential_field, sigma=POTENTIAL_GAUSS_SIGMA, truncate=3.0, mode='wrap')
+
+        if self.callbacks:
+            self.debug_maps['dropoff'] = potential_field
+
+        # Overlay points and potential_field
+        potential_field_filtered = np.full(potential_field.shape, 0, dtype=np.float)
+        x, y = points[:, 0], points[:, 1]
+        potential_field_filtered[x, y] = potential_field[x, y]
+
+        self.debug_maps['dropoff_2'] = potential_field_filtered
 
     @property
     def collect_ships_stage(self):

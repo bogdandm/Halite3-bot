@@ -5,6 +5,7 @@ from typing import Iterable, List, Optional, Union
 
 import numpy as np
 
+from bot.utils import extend_grid
 from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
@@ -184,7 +185,8 @@ class GameMap:
         self.halite = np.empty((height, width), dtype=float)
         for y, row in enumerate(cells):
             for x, cell in enumerate(row):
-                self.halite[y][x] = cell.halite_amount
+                self.halite[y, x] = cell.halite_amount
+        self.halite_extended = extend_grid(self.halite)
 
     def __getitem__(self, location) -> Optional[Union['MapCell', Iterable['MapCell']]]:
         """
@@ -371,4 +373,11 @@ class GameMap:
         for _ in range(int(read_input())):
             cell_x, cell_y, cell_energy = map(int, read_input().split())
             self.cells[cell_y][cell_x].halite_amount = cell_energy
-            self.halite[cell_y][cell_x] = cell_energy
+            self.halite[cell_y, cell_x] = cell_energy
+
+            half = self.height // 2
+            cell_x_2 = cell_x + self.width if cell_x < half else cell_x - self.width
+            cell_y_2 = cell_y + self.height if cell_y < half else cell_y - self.height
+            for x in (cell_x, cell_x_2):
+                for y in (cell_y, cell_y_2):
+                    self.halite_extended[y + half, x + half] = cell_energy

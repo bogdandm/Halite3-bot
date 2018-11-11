@@ -3,6 +3,8 @@ import os
 import sys
 from functools import wraps
 
+import numpy as np
+
 
 class disable_print:
     def __init__(self):
@@ -47,3 +49,22 @@ def memoized_method(func):
         return memory[args]
 
     return memo
+
+
+def extend_grid(grid: np.ndarray) -> np.ndarray:
+    h, w = grid.shape
+    extended_grid = np.zeros((w * 2, h * 2), dtype=grid.dtype)
+    w2 = w // 2
+    h2 = h // 2
+    extended_grid[0:h2, 0:w2] = grid[h2:h, w2:w]
+    extended_grid[0:h2, w2:w + w2] = grid[h2:h, 0:w]
+    extended_grid[0:h2, w + w2:w + w] = grid[h2:h, 0:w2]
+
+    extended_grid[h2:h + h2, 0:w2] = grid[0:h, w2:w]
+    extended_grid[h2:h + h2, w2:w + w2] = grid[0:h, 0:w]
+    extended_grid[h2:h + h2, w + w2:w + w] = grid[0:h, 0:w2]
+
+    extended_grid[h + h2:h + h, 0:w2] = grid[0:h2, w2:w]
+    extended_grid[h + h2:h + h, w2:w + w2] = grid[0:h2, 0:w]
+    extended_grid[h + h2:h + h, w + w2:w + w] = grid[0:h2, 0:w2]
+    return extended_grid
