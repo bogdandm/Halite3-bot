@@ -153,7 +153,7 @@ class Bot:
 
         # Check whether new dropoff can be created or not
         if self.building_dropoff is None:
-            if self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
+            if 10 < self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
                     and me.halite_amount > constants.DROPOFF_COST:
                 dropoff_position, dropoff_ship = self.dropoff_builder()
             else:
