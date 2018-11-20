@@ -154,8 +154,8 @@ class Plotter:
                         (p.x, p.y),
                         round(CELL_SIZE / 2.5 * (ship.halite_amount / constants.MAX_HALITE))
                     )
-                if is_selected and self.bot.ship_manager.targets.get(ship, None):
-                    target = self.bot.ship_manager.targets[ship]
+                if is_selected and self.bot.ships_targets.get(ship, None):
+                    target = self.bot.ships_targets[ship]
                     if isinstance(target, Position):
                         points = (ship.position, target)
                     else:

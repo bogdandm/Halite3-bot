@@ -1,8 +1,6 @@
 import logging
-import operator
 import time
 from itertools import combinations
-from queue import Queue
 from random import shuffle
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -11,7 +9,8 @@ import skimage.measure as msr
 from scipy.ndimage import gaussian_filter
 from skimage import draw
 
-from hlt import Direction, Game, Position, constants
+import hlt
+from hlt import Direction, Position, constants
 from hlt.entity import Ship
 from .const import LOCAL, V2
 
@@ -29,68 +28,19 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
-class ShipManager:
-    def __init__(self, game: Game):
-        self.game = game
-
-        self.ships: List[Ship] = []
-        self.distances: Dict[Ship, int] = {}
-        self.targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
-        self.reverse_targets: Dict[Position, Ship] = {}
-        self._commands: Dict[Ship, Optional[str]] = {}
-
-    def update(self):
-        self.ships = self.game.me.get_ships()
-
-        gmap = self.game.map
-        me = self.game.me
-        bases = {me.shipyard.position, *(base.position for base in me.get_dropoffs())}
-
-        self.distances = {
-            ship: min(gmap.distance(ship.position, base) for base in bases)
-            for ship in self.ships
-        }
-        self.ships = [ship for ship, distance in sorted(self.distances.items(), key=operator.itemgetter(1))]
-        self.targets = {ship: None for ship in self.ships}
-        self.reverse_targets = {}
-
-    def add_target(self, ship: Ship, target: Optional[Union[Position, Tuple[int, int], List[Position]]]):
-        self.targets[ship] = target
-        if target is None:
-            return
-        if isinstance(target, Position):
-            position = target
-        elif isinstance(target, Tuple):
-            position = Position(*target)
-        elif isinstance(target, list):
-            position = target[-1]
-        else:
-            raise TypeError(f"Target is type of {type(target)}"
-                            " but one of Position, Tuple[int, int], List[Position] is expected")
-        self.reverse_targets[position] = ship
-
-    # def get_ships_lt(self, ship: Ship):
-    #     ix = self.ships.index(ship)
-    #     return self.ships[:ix]
-    #
-    # def get_ships_gt(self, ship: Ship):
-    #     ix = self.ships.index(ship)
-    #     return self.ships[ix:]
-
-
 class Bot:
     def __init__(
             self,
             distance_penalty_k=1.3,
             ship_fill_k=.7,
             ship_limit=45,
-            ship_spawn_stop_turn=.5,
+            ship_spawn_stop_turn=.45,
             dropoff_spawn_stop_turn=.7,
             enemy_ship_penalty=.3,
             enemy_ship_nearby_penalty=.6,
             same_target_penalty=.7,
             turn_time_warning=1.8,
-            ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
+            ship_limit_scaling=1,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=1 / 20,
 
             potential_gauss_sigma=6.,
@@ -123,8 +73,8 @@ class Bot:
         self.dropoff_my_base = dropoff_my_base
         self.dropoff_enemy_base = dropoff_enemy_base
 
-        self.game = Game()
-        self.ship_manager = ShipManager(self.game)
+        self.game = hlt.Game()
+        self.ships_targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
         self.building_dropoff: Optional[Tuple[Position, Ship]] = None
         self.ships_to_home: Set[int] = set()
         self.max_ships_reached = 0
@@ -137,6 +87,7 @@ class Bot:
     def run(self):
         map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
         self.mask = map_creator()
+        self.per_ship_mask = map_creator()
         self.blurred_halite = map_creator()
         self.filtered_halite = map_creator()
         self.weighted_halite = map_creator()
@@ -162,7 +113,13 @@ class Bot:
         while True:
             time1 = time.time()
             self.game.update_frame()
-            self.ship_manager.update()
+
+            # Update ships and delete destroyed ones
+            self.ships_targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {
+                ship: target
+                for ship, target in self.ships_targets.items()
+                if ship.exists
+            }
 
             commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
             self.game.end_turn(commands)
@@ -191,41 +148,39 @@ class Bot:
         my_ships = me.get_ships()
         gmap = self.game.map
         home = self.game.me.shipyard.position
-        moves: Dict[Ship, Iterable[Tuple[int, int]]] = {}
+        moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = []
         bases = {home, *(base.position for base in me.get_dropoffs())}
 
         # Check whether new dropoff can be created or not
         if self.building_dropoff is None:
-            if 10 < self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn:
+            if 10 < self.game.turn_number < constants.MAX_TURNS * self.dropoff_spawn_stop_turn \
+                    and me.halite_amount > constants.DROPOFF_COST:
                 dropoff_position, dropoff_ship = self.dropoff_builder()
             else:
                 dropoff_position, dropoff_ship = None, None
         else:
             dropoff_position, dropoff_ship = self.building_dropoff
-            if not dropoff_ship.exists:
-                dropoff_position, dropoff_ship = None, None
-                self.building_dropoff = None
 
         if dropoff_ship is not None and dropoff_position is not None:
-            if me.halite_amount > constants.DROPOFF_COST:
-                if dropoff_ship.position == dropoff_position:
-                    # If ship in place wait until we have enough halite to build dropoff
-                    if me.halite_amount + dropoff_ship.halite_amount > constants.DROPOFF_COST:
-                        yield dropoff_ship.make_dropoff()
-                        me.halite_amount -= constants.DROPOFF_COST - dropoff_ship.halite_amount
-                        logging.info(f"Building dropoff {dropoff_position} from Ship#{dropoff_ship.id}")
-                        self.building_dropoff = None
-                    else:
-                        yield dropoff_ship.stay_still()
+            if dropoff_ship.position == dropoff_position:
+                # If ship in place wait until we have enough halite to build dropoff
+                if me.halite_amount + dropoff_ship.halite_amount > constants.DROPOFF_COST:
+                    yield dropoff_ship.make_dropoff()
+                    me.halite_amount -= constants.DROPOFF_COST - dropoff_ship.halite_amount
+                    logging.info(f"Building dropoff {dropoff_position} from Ship#{dropoff_ship.id}")
+                    self.building_dropoff = None
                 else:
-                    # Move to new dropoff position
-                    self.ship_manager.add_target(dropoff_ship, dropoff_position)
-                    self.building_dropoff = dropoff_position, dropoff_ship
-                    logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
-                    path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
-                    moves[dropoff_ship] = (gmap.normalize_direction(path[0] - dropoff_ship.position),)
+                    yield dropoff_ship.stay_still()
             else:
-                yield dropoff_ship.stay_still()
+                # Move to new dropoff position
+                self.ships_targets[dropoff_ship] = dropoff_position
+                self.building_dropoff = dropoff_position, dropoff_ship
+                logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
+                path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
+                moves.append((
+                    dropoff_ship,
+                    (gmap.normalize_direction(path[0] - dropoff_ship.position),)
+                ))
 
         # General mask
         # Contains:
@@ -250,23 +205,17 @@ class Bot:
             self.blurred_halite /= gbh_max - gbh_min
             if self.callbacks:
                 self.debug_maps["gbh_norm"] = self.blurred_halite
-            self.filtered_halite *= self.blurred_halite / 2 + .5
 
         max_halite: float = gmap.halite.max()
         self.filtered_halite[:, :] = gmap.halite[:, :]
         self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
-        self.filtered_halite *= self.mask
 
         # Generate moves for ships from mask and halite field
-        queue = Queue()
         for ship in my_ships:
-            queue.put(ship)
-        while not queue.empty():
-            ship = queue.get()
+            # Ship unloading
             if ship == dropoff_ship:
                 continue
 
-            # Ship unloading
             to_home = ship in self.ships_to_home
             if to_home and ship.position in bases:
                 logging.info(f"Ship#{ship.id} unload")
@@ -280,20 +229,35 @@ class Bot:
                     bases,
                     key=lambda base: gmap.distance(ship.position, base)
                 )
-                path = gmap.a_star_path_search(ship.position, ship_target)
-                self.ship_manager.add_target(ship, path)
-                moves[ship] = (gmap.normalize_direction(path[0] - ship.position),)
-
-            # Ship has too low halite to move
-            elif gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
-                yield ship.stay_still()
-                continue
+                self.ships_targets[ship] = path = gmap.a_star_path_search(ship.position, ship_target)
+                moves.append((
+                    ship,
+                    (gmap.normalize_direction(path[0] - ship.position),)
+                ))
 
             else:
-                target = None
+                self.per_ship_mask.fill(1.0)
+                for another_ship, target in self.ships_targets.items():
+                    if isinstance(target, list):
+                        target = target[0]
+                    if another_ship is ship or target is None or target == home:
+                        continue
+                    self.per_ship_mask[target[1], target[0]] *= self.same_target_penalty
+
+                # Ship has too low halite to move
+                if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
+                    # self.ships_targets[ship] = None
+                    yield ship.stay_still()
+                    continue
+
+                position = None
                 self.weighted_halite[:, :] = self.filtered_halite[:, :]
 
                 # Apply masks
+                if not self.fast_mode:
+                    self.weighted_halite *= self.blurred_halite / 2 + .5
+                self.weighted_halite *= self.mask
+                self.weighted_halite *= self.per_ship_mask
                 distances = np.roll(self.distances, ship.position.y, axis=0)
                 distances = np.roll(distances, ship.position.x, axis=1)
                 self.weighted_halite /= distances
@@ -303,44 +267,26 @@ class Bot:
                     self.debug_maps[ship.id] = self.weighted_halite.copy()
 
                 # Found max point
-                target = None
-                while True:
-                    if target:
-                        self.weighted_halite[target.y, target.x] = 0
-                    y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
-                    max_halite = self.weighted_halite[y, x]
-                    if max_halite > 0.1:
-                        target = Position(x, y)
-                        if target is dropoff_position:
-                            continue
-                        if target == ship.position:
-                            logging.info(f"Ship#{ship.id} collecting halite")
-                            self.ship_manager.add_target(ship, None)
-                            yield ship.stay_still()
-                        else:
-                            another_ship = self.ship_manager.reverse_targets.get(target, None)
-                            # Another ship is already moved to this cell
-                            if another_ship:
-                                distance = gmap.distance(ship.position, target)
-                                other_distance = gmap.distance(another_ship.position, target)
-                                if distance >= other_distance:
-                                    # and this ship is closer to target
-                                    continue
-                                # otherwise we should find target new target for other ship
-                                self.ship_manager.add_target(another_ship, None)
-                                queue.put(another_ship)
-                                del moves[another_ship]
-                            logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
-                            self.ship_manager.add_target(ship, target)
-                            moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
-                    else:
-                        logging.info(f"Ship#{ship.id} does not found good halite deposit")
-                        self.ship_manager.add_target(ship, None)
+                y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
+                max_halite: Tuple[Position, int] = (Position(x, y), self.weighted_halite[y, x])
+                if max_halite[1] > 0.1:
+                    position = max_halite[0]
+
+                if position:
+                    if position == ship.position:
+                        logging.info(f"Ship#{ship.id} collecting halite")
+                        self.ships_targets[ship] = None
                         yield ship.stay_still()
-                    break
+                    else:
+                        logging.info(f"Ship#{ship.id} {ship.position} moving towards {position}")
+                        self.ships_targets[ship] = position
+                        moves.append((ship, list(self.game.map.get_unsafe_moves(ship.position, position))))
+                else:
+                    logging.info(f"Ship#{ship.id} does not found good halite deposit")
+                    self.ships_targets[ship] = None
+                    yield ship.stay_still()
 
         # Resolve moves into commands in 2 iterations
-        moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = list(moves.items())
         for i in range(2):
             commands, moves = self.resolve_moves(moves)
             yield from commands
@@ -352,8 +298,7 @@ class Bot:
 
         # Max ships: base at 32 map size, 2*base at 64 map size
         if (
-                (dropoff_position is None or me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
-                and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
+                self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                 and me.halite_amount >= constants.SHIP_COST
                 and not gmap[me.shipyard].is_occupied
                 and self.max_ships_reached <= 2
@@ -446,16 +391,16 @@ class Bot:
     def collect_ships_stage(self):
         if self.collect_ships_stage_started:
             return True
-        if self.game.turn_number + 5 < constants.MAX_TURNS - self.game.map.width:
+        if self.game.turn_number + 5 < constants.MAX_TURNS - self.game.map.width / 2:
             return False
         me = self.game.me
         gmap = self.game.map
         distances = [gmap.distance(ship.position, me.shipyard.position)
                      for ship in me.get_ships()]
         distances = sorted(distances)
-        if not distances:
-            return False
-        if constants.MAX_TURNS - self.game.turn_number - 5 <= distances[-1]:
+        if len(distances) > 10:
+            distances = distances[:-4]
+        if not distances or constants.MAX_TURNS - self.game.turn_number + 5 >= distances[-1]:
             self.collect_ships_stage_started = True
             return True
 

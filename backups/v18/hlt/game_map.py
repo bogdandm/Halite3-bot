@@ -5,7 +5,7 @@ from typing import Iterable, List, Optional, Union
 
 import numpy as np
 
-from bot.utils import extend_grid, memoized_method
+from bot.utils import extend_grid
 from hlt import constants
 from .common import read_input
 from .entity import Dropoff, Entity, Ship, Shipyard
@@ -219,8 +219,8 @@ class GameMap:
     def total_halite(self):
         return sum(map(operator.attrgetter("halite_amount"), iter(self)))
 
-    @memoized_method
-    def distance(self, source: Position, target: Position):
+    # @memoized_method
+    def distance(self, source, target):
         """
         Compute the Manhattan distance between two locations.
         Accounts for wrap-around.
