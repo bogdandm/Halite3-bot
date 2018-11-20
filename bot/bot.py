@@ -2,7 +2,6 @@ import logging
 import operator
 import time
 from itertools import combinations
-from queue import Queue
 from random import shuffle
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -36,7 +35,6 @@ class ShipManager:
         self.ships: List[Ship] = []
         self.distances: Dict[Ship, int] = {}
         self.targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
-        self.reverse_targets: Dict[Position, Ship] = {}
         self._commands: Dict[Ship, Optional[str]] = {}
 
     def update(self):
@@ -52,22 +50,9 @@ class ShipManager:
         }
         self.ships = [ship for ship, distance in sorted(self.distances.items(), key=operator.itemgetter(1))]
         self.targets = {ship: None for ship in self.ships}
-        self.reverse_targets = {}
 
     def add_target(self, ship: Ship, target: Optional[Union[Position, Tuple[int, int], List[Position]]]):
         self.targets[ship] = target
-        if target is None:
-            return
-        if isinstance(target, Position):
-            position = target
-        elif isinstance(target, Tuple):
-            position = Position(*target)
-        elif isinstance(target, list):
-            position = target[-1]
-        else:
-            raise TypeError(f"Target is type of {type(target)}"
-                            " but one of Position, Tuple[int, int], List[Position] is expected")
-        self.reverse_targets[position] = ship
 
     # def get_ships_lt(self, ship: Ship):
     #     ix = self.ships.index(ship)
@@ -140,6 +125,7 @@ class Bot:
         self.blurred_halite = map_creator()
         self.filtered_halite = map_creator()
         self.weighted_halite = map_creator()
+        self.per_ship_mask = map_creator()
 
         self.ship_limit = round(
             self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
@@ -258,11 +244,7 @@ class Bot:
         self.filtered_halite *= self.mask
 
         # Generate moves for ships from mask and halite field
-        queue = Queue()
-        for ship in my_ships:
-            queue.put(ship)
-        while not queue.empty():
-            ship = queue.get()
+        for ship in reversed(self.ship_manager.ships):
             if ship == dropoff_ship:
                 continue
 
@@ -290,54 +272,44 @@ class Bot:
                 continue
 
             else:
-                target = None
+                self.per_ship_mask.fill(1.0)
+                for another_ship, target in self.ship_manager.targets.items():
+                    if isinstance(target, list):
+                        target = target[0]
+                    if another_ship is ship or target is None or target == home:
+                        continue
+                    self.per_ship_mask[target[1], target[0]] *= self.same_target_penalty
                 self.weighted_halite[:, :] = self.filtered_halite[:, :]
 
                 # Apply masks
                 distances = np.roll(self.distances, ship.position.y, axis=0)
                 distances = np.roll(distances, ship.position.x, axis=1)
                 self.weighted_halite /= distances
+                self.weighted_halite *= self.per_ship_mask
                 self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
 
                 if self.callbacks:
                     self.debug_maps[ship.id] = self.weighted_halite.copy()
 
                 # Found max point
-                target = None
-                while True:
-                    if target:
-                        self.weighted_halite[target.y, target.x] = 0
-                    y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
-                    max_halite = self.weighted_halite[y, x]
-                    if max_halite > 0.1:
-                        target = Position(x, y)
-                        if target is dropoff_position:
-                            continue
-                        if target == ship.position:
-                            logging.info(f"Ship#{ship.id} collecting halite")
-                            self.ship_manager.add_target(ship, None)
-                            yield ship.stay_still()
-                        else:
-                            another_ship = self.ship_manager.reverse_targets.get(target, None)
-                            # Another ship is already moved to this cell
-                            if another_ship:
-                                distance = gmap.distance(ship.position, target)
-                                other_distance = gmap.distance(another_ship.position, target)
-                                if distance >= other_distance:
-                                    # and this ship is closer to target
-                                    continue
-                                # otherwise we should find target new target for other ship
-                                self.ship_manager.add_target(another_ship, None)
-                                queue.put(another_ship)
-                                del moves[another_ship]
-                            logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
-                            self.ship_manager.add_target(ship, target)
-                            moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
-                    else:
-                        logging.info(f"Ship#{ship.id} does not found good halite deposit")
+                y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
+                max_halite = self.weighted_halite[y, x]
+                if max_halite > 0.1:
+                    target = Position(x, y)
+                    if target is dropoff_position:
+                        continue
+                    if target == ship.position:
+                        logging.info(f"Ship#{ship.id} collecting halite")
                         self.ship_manager.add_target(ship, None)
                         yield ship.stay_still()
-                    break
+                    else:
+                        logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
+                        self.ship_manager.add_target(ship, target)
+                        moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
+                else:
+                    logging.info(f"Ship#{ship.id} does not found good halite deposit")
+                    self.ship_manager.add_target(ship, None)
+                    yield ship.stay_still()
 
         # Resolve moves into commands in 2 iterations
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = list(moves.items())
@@ -446,7 +418,7 @@ class Bot:
     def collect_ships_stage(self):
         if self.collect_ships_stage_started:
             return True
-        if self.game.turn_number + 5 < constants.MAX_TURNS - self.game.map.width:
+        if self.game.turn_number + 3 < constants.MAX_TURNS - self.game.map.width:
             return False
         me = self.game.me
         gmap = self.game.map
