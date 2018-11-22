@@ -29,13 +29,15 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
 
 
 class ShipManager:
-    def __init__(self, game: Game):
+    def __init__(self, game: Game, turn_waiting_until_destroy: int = 20):
         self.game = game
+        self.turn_waiting_until_destroy = turn_waiting_until_destroy
 
         self.ships: List[Ship] = []
         self.distances: Dict[Ship, int] = {}
         self.targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
         self._commands: Dict[Ship, Optional[str]] = {}
+        self.blockers: Dict[Ship, Dict[Ship, int]] = {}
 
     def update(self):
         self.ships = self.game.me.get_ships()
@@ -54,13 +56,100 @@ class ShipManager:
     def add_target(self, ship: Ship, target: Optional[Union[Position, Tuple[int, int], List[Position]]]):
         self.targets[ship] = target
 
-    # def get_ships_lt(self, ship: Ship):
-    #     ix = self.ships.index(ship)
-    #     return self.ships[:ix]
-    #
-    # def get_ships_gt(self, ship: Ship):
-    #     ix = self.ships.index(ship)
-    #     return self.ships[ix:]
+    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
+        for i in range(4):
+            commands, moves = self._resolve_moves(moves)
+            yield from commands
+
+        for ship, d in moves:
+            logging.debug(f"Unsafe move: {ship} -> {d}")
+            yield ship.stay_still()
+
+    def _resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
+        gmap = self.game.map
+        me = self.game.me
+
+        tmp_moves = moves[:]
+        unsafe_moves = []
+        swapped_ships: Set[Ship] = set()
+        commands = []
+
+        # Resolve all regular movements until all remaining moves are not safe
+        changing = True
+        while changing and tmp_moves:
+            changing = False
+            while tmp_moves:
+                ship, directions = tmp_moves.pop()
+                for d in directions:
+                    cell = gmap[ship.position + d]
+                    if not cell.is_occupied or cell.is_occupied_base(me):
+                        logging.info(f"Ship#{ship.id} moves {Direction.Names[d]}")
+                        commands.append(gmap.update_ship_position(ship, d))
+                        changing = True
+                        break
+                else:
+                    unsafe_moves.append((ship, directions))
+
+            tmp_moves, unsafe_moves = unsafe_moves, []
+
+        # Perform "ship swap" movements
+        for a, b in combinations(tmp_moves, 2):
+            resolved = False
+            ship1, ld1 = a
+            ship2, ld2 = b
+            if ship1 in swapped_ships or ship2 in swapped_ships:
+                continue
+            for d1 in ld1:
+                if resolved:
+                    break
+                for d2 in ld2:
+                    if (
+                            gmap.normalize(ship1.position + d1) == ship2.position
+                            and ship1.position == gmap.normalize(ship2.position + d2)
+                    ):
+                        resolved = True
+                        swapped_ships.add(ship1)
+                        swapped_ships.add(ship2)
+                        commands.extend(gmap.swap_ships(ship1, ship2))
+
+        tmp_moves = [(ship, d) for ship, d in tmp_moves if ship not in swapped_ships]
+
+        stacked_ships = {ship for ship, _ in tmp_moves}
+        resolved_ships = {ship for ship in self.ships} - stacked_ships
+        for ship in resolved_ships:
+            if ship in self.blockers:
+                del self.blockers[ship]
+
+        remove_moves = set()
+        for ship, d in tmp_moves:
+            old_blockers = self.blockers.get(ship, None)
+            new_blockers = {}
+            for direction in d:
+                other_ship = gmap[ship.position + direction].ship
+                if other_ship is None:
+                    commands.append(gmap.update_ship_position(ship, direction))
+                    remove_moves.add(ship)
+                    if ship in self.blockers:
+                        del self.blockers[ship]
+                    break
+                enemy = other_ship.owner != me.id
+                if old_blockers and other_ship in old_blockers:
+                    blocked_turns = old_blockers.get(other_ship, 0)
+                    blocked_turns += 1
+                    if enemy and blocked_turns >= self.turn_waiting_until_destroy \
+                            and ship.halite_amount <= constants.MAX_TURNS * .75:
+                        commands.append(gmap.update_ship_position(ship, direction))
+                        remove_moves.add(ship)
+                        del self.blockers[ship]
+                        break
+                    new_blockers[other_ship] = blocked_turns
+                else:
+                    new_blockers[other_ship] = 0
+            else:
+                self.blockers[ship] = new_blockers
+
+        tmp_moves = [(ship, d) for ship, d in tmp_moves if ship not in remove_moves]
+        return commands, tmp_moves
 
 
 class Bot:
@@ -232,7 +321,8 @@ class Bot:
             self.blurred_halite = gaussian_filter(gmap.halite, sigma=2, truncate=2.0, mode='wrap')
             gbh_min, gbh_max = self.blurred_halite.min(), self.blurred_halite.max()
             self.blurred_halite -= gbh_min
-            self.blurred_halite /= gbh_max - gbh_min
+            if gbh_max - gbh_min != 0.0:
+                self.blurred_halite /= gbh_max - gbh_min
             if self.callbacks:
                 self.debug_maps["gbh_norm"] = self.blurred_halite
             self.filtered_halite *= self.blurred_halite / 2 + .5
@@ -311,16 +401,8 @@ class Bot:
                     self.ship_manager.add_target(ship, None)
                     yield ship.stay_still()
 
-        # Resolve moves into commands in 2 iterations
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = list(moves.items())
-        for i in range(2):
-            commands, moves = self.resolve_moves(moves)
-            yield from commands
-
-        # Remaining ship has not any safe moves
-        for ship, d in moves:
-            logging.debug(f"Unsafe move: {ship} -> {d}")
-            yield ship.stay_still()
+        yield from self.ship_manager.resolve_moves(moves)
 
         # Max ships: base at 32 map size, 2*base at 64 map size
         if (
@@ -479,61 +561,4 @@ class Bot:
                 else:
                     yield ship.stay_still()
 
-        for i in range(4):
-            commands, moves = self.resolve_moves(moves)
-            yield from commands
-
-        for ship, d in moves:
-            logging.debug(f"Unsafe move: {ship} -> {d}")
-            yield ship.stay_still()
-
-    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
-        gmap = self.game.map
-        me = self.game.me
-
-        tmp_moves = moves[:]
-        unsafe_moves = []
-        swapped_ships: Set[Ship] = set()
-        commands = []
-
-        # Resolve all regular movements until all remaining moves are not safe
-        changing = True
-        while changing and tmp_moves:
-            changing = False
-            while tmp_moves:
-                ship, directions = tmp_moves.pop()
-                for d in directions:
-                    cell = gmap[ship.position + d]
-                    if not cell.is_occupied or cell.is_occupied_base(me):
-                        logging.info(f"Ship#{ship.id} moves {Direction.Names[d]}")
-                        commands.append(gmap.update_ship_position(ship, d))
-                        changing = True
-                        break
-                else:
-                    unsafe_moves.append((ship, directions))
-
-            tmp_moves, unsafe_moves = unsafe_moves, []
-
-        # Perform "ship swap" movements
-        for a, b in combinations(tmp_moves, 2):
-            resolved = False
-            ship1, ld1 = a
-            ship2, ld2 = b
-            if ship1 in swapped_ships or ship2 in swapped_ships:
-                continue
-            for d1 in ld1:
-                if resolved:
-                    break
-                for d2 in ld2:
-                    if (
-                            gmap.normalize(ship1.position + d1) == ship2.position
-                            and ship1.position == gmap.normalize(ship2.position + d2)
-                    ):
-                        resolved = True
-                        swapped_ships.add(ship1)
-                        swapped_ships.add(ship2)
-                        commands.extend(gmap.swap_ships(ship1, ship2))
-
-        tmp_moves = [(ship, d) for ship, d in tmp_moves if ship not in swapped_ships]
-
-        return commands, tmp_moves
+        yield from self.ship_manager.resolve_moves(moves)

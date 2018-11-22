@@ -12,7 +12,7 @@ class Entity(abc.ABC):
     """
 
     def __init__(self, owner, id, position):
-        self.owner = owner
+        self.owner: int = owner
         self.id = id
         self.position: 'Position' = position
 
