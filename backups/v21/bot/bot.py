@@ -77,7 +77,6 @@ class Bot:
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=1 / 20,
-            stay_still_bonus=2,
 
             potential_gauss_sigma=6.,
             contour_k=.4,
@@ -99,7 +98,7 @@ class Bot:
         self.turn_time_warning = turn_time_warning
         self.ship_limit_scaling = ship_limit_scaling
         self.halite_threshold = halite_threshold
-        self.stay_still_bonus = stay_still_bonus
+        self.stay_still_bonus = None
 
         self.potential_gauss_sigma = potential_gauss_sigma
         self.contour_k = contour_k
@@ -123,6 +122,7 @@ class Bot:
     def run(self):
         map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
         self.mask = map_creator()
+        self.blurred_halite = map_creator()
         self.filtered_halite = map_creator()
         self.weighted_halite = map_creator()
         self.per_ship_mask = map_creator()
@@ -141,6 +141,7 @@ class Bot:
         self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
+        self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO
         if len(self.game.players) == 4:
             self.ship_limit //= 1.2
 
@@ -286,7 +287,6 @@ class Bot:
                 self.weighted_halite /= distances
                 self.weighted_halite *= self.per_ship_mask
                 self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
-                self.weighted_halite[ship.position.y, ship.position.x] *= self.stay_still_bonus
 
                 if self.callbacks:
                     self.debug_maps[ship.id] = self.weighted_halite.copy()

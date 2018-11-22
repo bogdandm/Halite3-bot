@@ -107,7 +107,7 @@ class BotArgumentsV12(GenericBotArguments):
 
 
 class BotArguments(GenericBotArguments):
-    command = "python MyBot.py --args {args}"
+    command = "python MyBot.py --local --args {args}"
     version = 13
 
     potential_gauss_sigma = FloatArgument(2.0, 10.0)
@@ -116,3 +116,10 @@ class BotArguments(GenericBotArguments):
     dropoff_enemy_ship = FloatArgument(-10.0, -0.5)
     dropoff_my_base = FloatArgument(-150.0, -10.0)
     dropoff_enemy_base = FloatArgument(-150.0, -10.0)
+
+
+class BotArgumentsStayStill(GenericBotArguments):
+    command = "python MyBot.py --local --args {args}"
+    version = 22
+
+    stay_still_bonus = FloatArgument(0.8, 4.0)
