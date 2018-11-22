@@ -2,7 +2,7 @@ import logging
 import operator
 import time
 from itertools import combinations
-from random import shuffle
+from random import choice, shuffle
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -12,6 +12,7 @@ from skimage import draw
 
 from hlt import Direction, Game, Position, constants
 from hlt.entity import Ship
+from hlt.game_map import Player
 from .const import LOCAL, V2
 
 
@@ -332,6 +333,9 @@ class Bot:
         self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
         self.filtered_halite *= self.mask
 
+        enemy = [p for p in self.game.players.values() if p is not me][0]
+        ram_enabled = len(self.game.players) == 2 and len(me.get_ships()) > len(enemy.get_ships()) + 10
+
         # Generate moves for ships from mask and halite field
         for ship in reversed(self.ship_manager.ships):
             if ship == dropoff_ship:
@@ -361,6 +365,23 @@ class Bot:
                 continue
 
             else:
+                if ram_enabled:
+                    # Ram enemy ship with a lot of halite
+                    collided = False
+                    for direction in Direction.All:
+                        other_ship = gmap[ship.position + direction].ship
+                        if not other_ship or other_ship.owner == me.id:
+                            continue
+                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 5:
+                            collided = True
+                            break
+                    if collided:
+                        logging.info(f"Ship#{ship.id} ramming enemy ship #{other_ship.id}"
+                                     f" ({ship.halite_amount}) vs ({other_ship.halite_amount})")
+                        # noinspection PyUnboundLocalVariable
+                        yield gmap.update_ship_position(ship, direction)
+                        continue
+
                 self.per_ship_mask.fill(1.0)
                 for another_ship, target in self.ship_manager.targets.items():
                     if isinstance(target, list):
@@ -542,16 +563,24 @@ class Bot:
     def collect_ships(self):
         gmap = self.game.map
         me = self.game.me
+        enemy: Player = choice([p for p in self.game.players.values() if p is not me])
         home = me.shipyard.position
 
         collect_points = [home + d for d in Direction.All]
-        # points = {p: [] for p in collect_points}
         moves = []
-        for ship in me.get_ships():
+        for i, ship in enumerate(me.get_ships()):
+            if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
+                yield ship.stay_still()
+                continue
             if ship.position not in collect_points and ship.position != home:
-                point = home + self.get_ship_parking_spot(ship)
-                # points[point].append(ship)
+                direction = self.get_ship_parking_spot(ship)
+                point = home + direction
                 ship_moves = list(gmap.get_unsafe_moves(ship.position, point))
+                if ship.halite_amount < 20:
+                    ship_moves = list(gmap.get_unsafe_moves(
+                        ship.position,
+                        enemy.shipyard.position + Direction.All[i % 4]
+                    ))
                 shuffle(ship_moves)
                 moves.append((ship, ship_moves))
             else:
