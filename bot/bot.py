@@ -57,16 +57,16 @@ class ShipManager:
     def add_target(self, ship: Ship, target: Optional[Union[Position, Tuple[int, int], List[Position]]]):
         self.targets[ship] = target
 
-    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
+    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]], ignore_enemy_ships=False):
         for i in range(4):
-            commands, moves = self._resolve_moves(moves)
+            commands, moves = self._resolve_moves(moves, ignore_enemy_ships=ignore_enemy_ships)
             yield from commands
 
         for ship, d in moves:
             logging.debug(f"Unsafe move: {ship} -> {d}")
             yield ship.stay_still()
 
-    def _resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]]):
+    def _resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]], ignore_enemy_ships):
         gmap = self.game.map
         me = self.game.me
 
@@ -83,7 +83,11 @@ class ShipManager:
                 ship, directions = tmp_moves.pop()
                 for d in directions:
                     cell = gmap[ship.position + d]
-                    if not cell.is_occupied or cell.is_occupied_base(me):
+                    if (
+                            cell.ship is None
+                            or ignore_enemy_ships and cell.ship.owner != me.id
+                            or cell.is_occupied_base(me)
+                    ):
                         logging.info(f"Ship#{ship.id} moves {Direction.Names[d]}")
                         commands.append(gmap.update_ship_position(ship, d))
                         changing = True
@@ -157,7 +161,7 @@ class Bot:
     def __init__(
             self,
             distance_penalty_k=1.3,
-            ship_fill_k=.7,
+            ship_fill_k=.8,
             ship_limit=45,
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
@@ -259,7 +263,10 @@ class Bot:
 
     @property
     def ship_fill_k(self):
-        return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
+        if len(self.game.players) == 2 or self.game.map.width > 40:
+            return self.ship_fill_k_base
+        else:
+            return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
 
     def loop(self):
         me = self.game.me
@@ -590,4 +597,4 @@ class Bot:
                 else:
                     yield ship.stay_still()
 
-        yield from self.ship_manager.resolve_moves(moves)
+        yield from self.ship_manager.resolve_moves(moves, ignore_enemy_ships=True)
