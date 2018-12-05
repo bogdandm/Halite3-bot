@@ -442,7 +442,7 @@ class Bot:
         ):
             if (
                     self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
-                    or gmap.total_halite / gmap.initial_halite < .5
+                    or gmap.total_halite / gmap.initial_halite >= .57
                     and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 2)
             ):
                 if len(my_ships) < self.ship_limit:
