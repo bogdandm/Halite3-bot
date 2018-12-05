@@ -1,4 +1,3 @@
-import operator
 from itertools import chain
 from queue import PriorityQueue
 from typing import Iterable, List, Optional, Union
@@ -187,6 +186,7 @@ class GameMap:
         for y, row in enumerate(cells):
             for x, cell in enumerate(row):
                 self.halite[y, x] = cell.halite_amount
+        self.initial_halite = self.total_halite
         self.halite_extended = extend_grid(self.halite)
 
     def __getitem__(self, location) -> Optional[Union['MapCell', Iterable['MapCell']]]:
@@ -217,7 +217,7 @@ class GameMap:
 
     @property
     def total_halite(self):
-        return sum(map(operator.attrgetter("halite_amount"), iter(self)))
+        return self.halite.sum()
 
     @memoized_method
     def distance(self, source: Position, target: Position):

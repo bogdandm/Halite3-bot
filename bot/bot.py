@@ -433,17 +433,22 @@ class Bot:
         yield from self.ship_manager.resolve_moves(moves)
 
         # Max ships: base at 32 map size, 2*base at 64 map size
+        shipyard_cell = gmap[me.shipyard]
         if (
-                (dropoff_position is None or me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
-                and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
-                and me.halite_amount >= constants.SHIP_COST
-                and not gmap[me.shipyard].is_occupied
-                and self.max_ships_reached <= 2
+                (dropoff_position is None and me.halite_amount >= constants.SHIP_COST
+                 or dropoff_position is not None and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
+                and self.max_ships_reached <= 3
+                and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
-            if len(my_ships) < self.ship_limit:
-                yield me.shipyard.spawn()
-            else:
-                self.max_ships_reached += 1
+            if (
+                    self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
+                    or gmap.total_halite / gmap.initial_halite < .5
+                    and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 2)
+            ):
+                if len(my_ships) < self.ship_limit:
+                    yield me.shipyard.spawn()
+                else:
+                    self.max_ships_reached += 1
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
