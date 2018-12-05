@@ -174,12 +174,12 @@ class Bot:
             stay_still_bonus=2,
 
             potential_gauss_sigma=6.,
-            contour_k=.4,
-            dropoff_threshold=.02,
+            contour_k=.5,
+            dropoff_threshold=.015,
             dropoff_my_ship=1,
             dropoff_enemy_ship=-.1,
             dropoff_my_base=-75,
-            dropoff_enemy_base=-30
+            dropoff_enemy_base=-10
     ):
         self.distance_penalty_k = distance_penalty_k
         self.ship_fill_k_base = ship_fill_k
