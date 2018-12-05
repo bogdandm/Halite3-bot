@@ -43,6 +43,7 @@ class Plotter:
         "gbh_norm",
         "dropoff",
         "dropoff_2",
+        "ships_mask",
     ]
 
     def __init__(self, bot: 'Bot'):
@@ -193,9 +194,10 @@ class Plotter:
         while not it.finished:
             halite = it[0]
             position = Position(*reversed(it.multi_index))
+            k = (max_value - min_value) or .1
             pygame.draw.rect(
                 self.screen,
-                mul_tuple((255, 255, 255), (halite - min_value) / (max_value - min_value), integer=True),
+                mul_tuple((255, 255, 255), (halite - min_value) / k, integer=True),
                 pos2rect(position)
             )
             it.iternext()
