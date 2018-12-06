@@ -1,4 +1,6 @@
-halite.exe --replay-directory replays/ -vvv --width 64 --height 64 --"no-timeout"^
-    "python MyBot.py --local --plot"^
+halite.exe --replay-directory replays/ -vvv --width 46 --height 46 --"no-timeout"^
+    "python MyBot.py --local --plot --v2"^
+    "python MyBot.py --local"^
+    "python MyBot.py --local"^
     "python MyBot.py --local"
 :: --"no-timeout"

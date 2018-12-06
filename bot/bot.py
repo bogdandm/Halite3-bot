@@ -161,7 +161,7 @@ class Bot:
     def __init__(
             self,
             distance_penalty_k=1.3,
-            ship_fill_k=.8,
+            ship_fill_k=.9,
             ship_limit=45,
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
@@ -171,7 +171,7 @@ class Bot:
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=1 / 20,
-            stay_still_bonus=2,
+            stay_still_bonus=1.7,
 
             potential_gauss_sigma=6.,
             contour_k=.5,
@@ -435,15 +435,16 @@ class Bot:
         # Max ships: base at 32 map size, 2*base at 64 map size
         shipyard_cell = gmap[me.shipyard]
         if (
-                (dropoff_position is None and me.halite_amount >= constants.SHIP_COST
-                 or dropoff_position is not None and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
+                (self.building_dropoff is None and me.halite_amount >= constants.SHIP_COST
+                 or self.building_dropoff is not None and all(self.building_dropoff)
+                 and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
                 and self.max_ships_reached <= 3
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
                     self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                     or gmap.total_halite / gmap.initial_halite >= .57
-                    and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 2)
+                    and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 1.5)
             ):
                 if len(my_ships) < self.ship_limit:
                     yield me.shipyard.spawn()
