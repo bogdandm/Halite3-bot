@@ -84,11 +84,8 @@ class Plotter:
         self.draw_bases()
         self.draw_ships()
 
-        height = 0
-        for info in self.info:
-            label = self.font.render(info, 0, WHITE)
-            self.screen.blit(label, (0, height))
-            height += label.get_height() + 2
+        label = self.font.render(self.info, 0, (255, 0, 0))
+        self.screen.blit(label, (0, 0))
         mouse = pygame.mouse.get_pos()
         pos = mul_tuple(mouse, 1 / CELL_SIZE, integer=True)
         halite_hover = self.font.render(str(self.bot.game.map[pos].halite_amount), 0, GREY)
@@ -240,27 +237,12 @@ class Plotter:
 
     @property
     def info(self):
-        gmap = self.bot.game.map
         if self.selected:
             load = (1 - self.selected.halite_amount / constants.MAX_HALITE) * 100
         else:
             load = 0
-
-        total = gmap.total_halite
-        info = [
-            f"{self.bot.game.turn_number:>3d}/{constants.MAX_TURNS} X{self.speed_up:.0f} "
-            f"{total:>6.0f} {total / gmap.initial_halite:>3.0%} ({self.bot.ship_fill_k:.1f})"
-        ]
-
-        players = [
-            f"{color}: {len(p.get_ships()):>2d} {p.halite_amount:>5d}"
-            for color, p in zip("GRBC", self.bot.game.players.values())
-        ]
-        info.append(f"{players[0]} | {players[1]}")
-        if len(players) > 2:
-            info.append(f"{players[2]} | {players[3]}")
-
-        if self.selected:
-            info.append(f":> selected: #{self.selected.id} {load:>2.0f}%")
-
-        return info
+        return f"{self.bot.game.turn_number}/{constants.MAX_TURNS} X{self.speed_up:.0f} |" \
+               f" G: {len(self.bot.game.players[0].get_ships()):>2d} {self.bot.game.players[0].halite_amount:>5d} | " \
+               f" R: {len(self.bot.game.players[1].get_ships()):>2d} {self.bot.game.players[1].halite_amount:>5d}" \
+               + (f" | selected: #{self.selected.id} {load:>2.0f}%"
+                  if self.selected else "")
