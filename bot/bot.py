@@ -179,7 +179,7 @@ class Bot:
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
             enemy_ship_penalty=.01,
-            enemy_ship_nearby_penalty=.05,
+            enemy_ship_nearby_penalty=.1,
             same_target_penalty=.7,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
@@ -387,7 +387,7 @@ class Bot:
 
             else:
                 ram_enabled = len(self.game.players) == 2 and len(me.get_ships()) > len(enemy.get_ships()) + 10
-                ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= 0.15
+                ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= 0.13
                 if ram_enabled:
                     # Ram enemy ship with a lot of halite
                     collided = False
@@ -395,7 +395,7 @@ class Bot:
                         other_ship = gmap[ship.position + direction].ship
                         if not other_ship or other_ship.owner == me.id:
                             continue
-                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 2:
+                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 3:
                             collided = True
                             break
                     if collided:
@@ -458,8 +458,10 @@ class Bot:
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
-                    self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
-                    or total_halite / gmap.initial_halite >= .57
+                    total_halite / gmap.initial_halite >= .30
+                    and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
+                    or
+                    total_halite / gmap.initial_halite >= .57
                     and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 1.5)
             ):
                 if len(my_ships) < self.ship_limit:
