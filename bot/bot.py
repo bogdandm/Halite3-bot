@@ -14,7 +14,7 @@ from skimage import draw
 from hlt import Direction, Game, Position, constants
 from hlt.entity import Ship
 from hlt.game_map import Player
-from .const import LOCAL, V2
+from .const import FLOG, LOCAL, V2
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -55,7 +55,7 @@ class ShipManager:
         }
         self.ships = [ship for ship, distance in sorted(self.distances.items(), key=operator.itemgetter(1))]
         self.targets = {ship: None for ship in self.ships}
-        if LOCAL and self.game.turn_number == constants.MAX_TURNS - 1:
+        if FLOG and self.game.turn_number == constants.MAX_TURNS - 1:
             with open(f"f-log-{time.time()}{'-V2' if V2 else ''}.json", "w") as f:
                 json.dump(self.f_log, f, default=lambda x: int(x) if isinstance(x, np.int32) else str(x))
 
@@ -178,8 +178,8 @@ class Bot:
             ship_limit=45,
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
-            enemy_ship_penalty=.3,
-            enemy_ship_nearby_penalty=.6,
+            enemy_ship_penalty=.01,
+            enemy_ship_nearby_penalty=.05,
             same_target_penalty=.7,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
@@ -276,7 +276,8 @@ class Bot:
 
     @property
     def ship_fill_k(self):
-        if len(self.game.players) == 2 or self.game.map.width > 40:
+        gmap = self.game.map
+        if (len(self.game.players) == 2 or gmap.width > 40) and gmap.total_halite / gmap.initial_halite > .10:
             return self.ship_fill_k_base
         else:
             return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
@@ -285,6 +286,7 @@ class Bot:
         me = self.game.me
         my_ships = me.get_ships()
         gmap = self.game.map
+        total_halite = gmap.total_halite
         home = self.game.me.shipyard.position
         moves: Dict[Ship, Iterable[Tuple[int, int]]] = {}
         bases = {home, *(base.position for base in me.get_dropoffs())}
@@ -354,7 +356,6 @@ class Bot:
         self.filtered_halite *= self.mask
 
         enemy = [p for p in self.game.players.values() if p is not me][0]
-        ram_enabled = len(self.game.players) == 2 and len(me.get_ships()) > len(enemy.get_ships()) + 10
 
         # Generate moves for ships from mask and halite field
         for ship in reversed(self.ship_manager.ships):
@@ -385,6 +386,8 @@ class Bot:
                 continue
 
             else:
+                ram_enabled = len(self.game.players) == 2 and len(me.get_ships()) > len(enemy.get_ships()) + 10
+                ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= 0.15
                 if ram_enabled:
                     # Ram enemy ship with a lot of halite
                     collided = False
@@ -392,7 +395,7 @@ class Bot:
                         other_ship = gmap[ship.position + direction].ship
                         if not other_ship or other_ship.owner == me.id:
                             continue
-                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 5:
+                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 2:
                             collided = True
                             break
                     if collided:
@@ -456,7 +459,7 @@ class Bot:
         ):
             if (
                     self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
-                    or gmap.total_halite / gmap.initial_halite >= .57
+                    or total_halite / gmap.initial_halite >= .57
                     and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 1.5)
             ):
                 if len(my_ships) < self.ship_limit:

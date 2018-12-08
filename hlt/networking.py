@@ -35,7 +35,7 @@ class Game:
         for player in range(num_players):
             self.players[player] = Player._generate()
         self.me = self.players[self.my_id]
-        self.map = GameMap._generate()
+        self.map = GameMap._generate(self.my_id)
 
     def ready(self, name):
         """

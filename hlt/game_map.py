@@ -178,10 +178,11 @@ class GameMap:
     Coordinates start at 0. Coordinates are normalized for you
     """
 
-    def __init__(self, cells: List[List[MapCell]], width, height):
+    def __init__(self, cells: List[List[MapCell]], width, height, me: int):
         self.width = width
         self.height = height
         self._cells = cells
+        self.me = me
         self.halite = np.empty((height, width), dtype=float)
         for y, row in enumerate(cells):
             for x, cell in enumerate(row):
@@ -310,7 +311,8 @@ class GameMap:
 
         return Direction.Still
 
-    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True, move_penalty=10):
+    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True, move_penalty=25,
+                           enemy_ship_penalty=100, friendly_ship_penalty=0):
         total_halite = self.total_halite
         halite_estimated_per_cell = total_halite / self.width / self.height / constants.MOVE_COST_RATIO / 2
 
@@ -326,8 +328,23 @@ class GameMap:
 
             for direction in Direction.All:
                 next_node = self.normalize(current + direction)
-                new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO + move_penalty
-                if ignore_ships is False and self[next_node].is_occupied:
+                cell = self[next_node]
+                near_by = False
+                for d in Direction.All:
+                    sh = self[cell.position + d].ship
+                    if sh is not None and sh.owner != self.me:
+                        near_by = True
+                        break
+                new_cost = closed[current] + cell.halite_amount / constants.MOVE_COST_RATIO
+                new_cost += move_penalty
+                if cell.ship:
+                    if cell.ship.owner != self.me:
+                        new_cost += enemy_ship_penalty
+                    else:
+                        new_cost += friendly_ship_penalty
+                if near_by:
+                    new_cost += enemy_ship_penalty / 2
+                if ignore_ships is False and cell.is_occupied:
                     new_cost += constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
                 if next_node not in closed or new_cost < closed[next_node]:
                     closed[next_node] = new_cost
@@ -344,7 +361,7 @@ class GameMap:
         return result
 
     @staticmethod
-    def _generate():
+    def _generate(me):
         """
         Creates a map object from the input given by the game engine
         :return: The map object
@@ -358,7 +375,7 @@ class GameMap:
                     Position(x_position, y_position),
                     int(cells[x_position])
                 )
-        return GameMap(game_map, map_width, map_height)
+        return GameMap(game_map, map_width, map_height, me)
 
     def _update(self):
         """

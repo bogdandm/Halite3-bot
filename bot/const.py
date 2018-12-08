@@ -16,3 +16,4 @@ PLAYERS = [
 
 V2 = "--v2" in sys.argv
 LOCAL = "--local" in sys.argv
+FLOG = "--flog" in sys.argv
