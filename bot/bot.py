@@ -178,8 +178,8 @@ class Bot:
             ship_limit=45,
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
-            enemy_ship_penalty=.01,
-            enemy_ship_nearby_penalty=.1,
+            enemy_ship_penalty=.2,
+            enemy_ship_nearby_penalty=.4,
             same_target_penalty=.7,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
@@ -458,7 +458,7 @@ class Bot:
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
-                    total_halite / gmap.initial_halite >= .30
+                    total_halite / gmap.initial_halite >= .25
                     and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                     or
                     total_halite / gmap.initial_halite >= .57
