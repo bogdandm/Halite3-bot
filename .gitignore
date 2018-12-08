@@ -18,3 +18,4 @@ venv
 *.pstat
 *.db
 manager/
+f-log-*.json

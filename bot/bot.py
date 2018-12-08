@@ -1,3 +1,4 @@
+import json
 import logging
 import operator
 import time
@@ -39,6 +40,7 @@ class ShipManager:
         self.targets: Dict[Ship, Optional[Union[Position, Tuple[int, int], List[Position]]]] = {}
         self._commands: Dict[Ship, Optional[str]] = {}
         self.blockers: Dict[Ship, Dict[Ship, int]] = {}
+        self.f_log = []
 
     def update(self):
         self.ships = self.game.me.get_ships()
@@ -53,9 +55,20 @@ class ShipManager:
         }
         self.ships = [ship for ship, distance in sorted(self.distances.items(), key=operator.itemgetter(1))]
         self.targets = {ship: None for ship in self.ships}
+        if LOCAL and self.game.turn_number == constants.MAX_TURNS - 1:
+            with open(f"f-log-{time.time()}{'-V2' if V2 else ''}.json", "w") as f:
+                json.dump(self.f_log, f, default=lambda x: int(x) if isinstance(x, np.int32) else str(x))
 
     def add_target(self, ship: Ship, target: Optional[Union[Position, Tuple[int, int], List[Position]]]):
         self.targets[ship] = target
+        if LOCAL and target:
+            p = Position(*(target[-1] if isinstance(target, list) else target))
+            self.f_log.append({
+                "t": self.game.turn_number,
+                "x": p.x,
+                "y": p.y,
+                "color": "#FF0000"
+            })
 
     def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]], ignore_enemy_ships=False):
         for i in range(4):
