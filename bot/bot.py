@@ -30,6 +30,11 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
+def roll2d(a: np.ndarray, x, y) -> np.ndarray:
+    a = np.roll(a, y, axis=0)
+    return np.roll(a, x, axis=1)
+
+
 class ShipManager:
     def __init__(self, game: Game, turn_waiting_until_destroy: int = 20):
         self.game = game
@@ -70,16 +75,21 @@ class ShipManager:
                 "color": "#FF0000"
             })
 
-    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]], ignore_enemy_ships=False):
+    def resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]],
+                      ignore_enemy_ships=False, avoid_collisions=False):
         for i in range(4):
-            commands, moves = self._resolve_moves(moves, ignore_enemy_ships=ignore_enemy_ships)
+            commands, moves = self._resolve_moves(moves, ignore_enemy_ships=ignore_enemy_ships,
+                                                  avoid_collisions=avoid_collisions)
             yield from commands
+            if not moves:
+                break
 
         for ship, d in moves:
             logging.debug(f"Unsafe move: {ship} -> {d}")
             yield ship.stay_still()
 
-    def _resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]], ignore_enemy_ships):
+    def _resolve_moves(self, moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]],
+                       ignore_enemy_ships, avoid_collisions):
         gmap = self.game.map
         me = self.game.me
 
@@ -96,10 +106,17 @@ class ShipManager:
                 ship, directions = tmp_moves.pop()
                 for d in directions:
                     cell = gmap[ship.position + d]
+                    safe = True
+                    if avoid_collisions:
+                        for d2 in Direction.All:
+                            neighbor = gmap[cell.position + d2]
+                            safe = safe and (neighbor.ship is None or neighbor.ship.owner == me.id)
+                            if not safe:
+                                break
                     if (
-                            cell.ship is None
-                            or ignore_enemy_ships and cell.ship.owner != me.id
-                            or cell.is_occupied_base(me)
+                            safe and (cell.ship is None
+                                      or ignore_enemy_ships and cell.ship.owner != me.id
+                                      or cell.is_occupied_base(me))
                     ):
                         logging.info(f"Ship#{ship.id} moves {Direction.Names[d]}")
                         commands.append(gmap.update_ship_position(ship, d))
@@ -178,8 +195,8 @@ class Bot:
             ship_limit=45,
             ship_spawn_stop_turn=.5,
             dropoff_spawn_stop_turn=.7,
-            enemy_ship_penalty=.2,
-            enemy_ship_nearby_penalty=.4,
+            enemy_ship_penalty=-1,
+            enemy_ship_nearby_bonus=.5,
             same_target_penalty=.7,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
@@ -201,7 +218,7 @@ class Bot:
         self.ship_turns_stop = ship_spawn_stop_turn
         self.dropoff_spawn_stop_turn = dropoff_spawn_stop_turn
         self.enemy_ship_penalty = enemy_ship_penalty
-        self.enemy_ship_nearby_penalty = enemy_ship_nearby_penalty
+        self.enemy_ship_nearby_bonus = enemy_ship_nearby_bonus
         self.same_target_penalty = same_target_penalty
         self.turn_time_warning = turn_time_warning
         self.ship_limit_scaling = ship_limit_scaling
@@ -229,10 +246,24 @@ class Bot:
 
     def run(self):
         map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
-        self.mask = map_creator()
+        self.ships_mask = map_creator()
         self.filtered_halite = map_creator()
         self.weighted_halite = map_creator()
         self.per_ship_mask = map_creator()
+        self.inspiration_mask = map_creator()
+
+        self.inspiration_mask.fill(0)
+        r = 4
+        self.inspiration_mask[r][r] = self.enemy_ship_penalty
+        for y in range(r * 2 + 1):
+            for x in range(r * 2 + 1):
+                d = abs(x - r) + abs(y - r)
+                if 0 < d <= 4:
+                    self.inspiration_mask[y][x] = (d - 2) * self.enemy_ship_nearby_bonus
+        self.inspiration_mask = gaussian_filter(self.inspiration_mask, mode="constant", cval=0, sigma=1,
+                                                truncate=r)
+        self.inspiration_mask += 1 - np.median(self.inspiration_mask)
+        self.inspiration_mask = roll2d(self.inspiration_mask, -r, -r)
 
         self.ship_limit = round(
             self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
@@ -329,16 +360,19 @@ class Bot:
         # * enemy ship penalty
         # * penalty for cells around enemy ships (4 directions)
         # * friendly dynamic penalty based on ship cargo / cell halite ratio
-        self.mask.fill(1.)
+        self.ships_mask.fill(1.)
         for player in self.game.players.values():
             for ship in player.get_ships():
                 if player is not me:
-                    self.mask[ship.position.y, ship.position.x] *= self.enemy_ship_penalty
-                    for dir in Direction.All:
-                        pos = gmap.normalize(ship.position + dir)
-                        self.mask[pos.y, pos.x] *= self.enemy_ship_nearby_penalty
+                    tmp_mask = roll2d(self.inspiration_mask, *ship.position)
+                    self.ships_mask *= tmp_mask
                 else:
-                    self.mask[ship.position.y, ship.position.x] *= ship_collecting_halite_coefficient(ship, gmap)
+                    self.filtered_halite[ship.position.y, ship.position.x] *= \
+                        ship_collecting_halite_coefficient(ship, gmap)
+        self.ships_mask += 1 - np.median(self.ships_mask)
+        self.ships_mask = np.clip(self.ships_mask, 0.1, 4)
+        if self.callbacks:
+            self.debug_maps["ships_mask"] = self.ships_mask
 
         if not self.fast_mode:
             self.blurred_halite = gaussian_filter(gmap.halite, sigma=2, truncate=2.0, mode='wrap')
@@ -353,7 +387,7 @@ class Bot:
         max_halite: float = gmap.halite.max()
         self.filtered_halite[:, :] = gmap.halite[:, :]
         self.filtered_halite[self.filtered_halite < max_halite * self.halite_threshold] = 0
-        self.filtered_halite *= self.mask
+        self.filtered_halite *= self.ships_mask
 
         enemy = [p for p in self.game.players.values() if p is not me][0]
 
@@ -415,8 +449,7 @@ class Bot:
                 self.weighted_halite[:, :] = self.filtered_halite[:, :]
 
                 # Apply masks
-                distances = np.roll(self.distances, ship.position.y, axis=0)
-                distances = np.roll(distances, ship.position.x, axis=1)
+                distances = roll2d(self.distances, *ship.position)
                 self.weighted_halite /= distances
                 self.weighted_halite *= self.per_ship_mask
                 self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
@@ -428,7 +461,7 @@ class Bot:
                 # Found max point
                 y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
                 max_halite = self.weighted_halite[y, x]
-                if max_halite > 0.1:
+                if max_halite > 0:
                     target = Position(x, y)
                     if target is dropoff_position:
                         continue
@@ -446,7 +479,7 @@ class Bot:
                     yield ship.stay_still()
 
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = list(moves.items())
-        yield from self.ship_manager.resolve_moves(moves)
+        yield from self.ship_manager.resolve_moves(moves, avoid_collisions=True)
 
         # Max ships: base at 32 map size, 2*base at 64 map size
         shipyard_cell = gmap[me.shipyard]
