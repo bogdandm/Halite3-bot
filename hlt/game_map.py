@@ -1,6 +1,7 @@
+import operator
 from itertools import chain
 from queue import PriorityQueue
-from typing import Iterable, List, Optional, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 import numpy as np
 
@@ -20,8 +21,14 @@ class Player:
         self.id = player_id
         self.shipyard: 'Shipyard' = shipyard
         self.halite_amount = halite
-        self._ships = {}
+        self._ships: Dict[int, Ship] = {}
         self._dropoffs = {}
+
+    @property
+    def halite_estimate(self):
+        return self.halite_amount + len(self._ships) * constants.SHIP_COST \
+               + len(self._dropoffs) * constants.DROPOFF_COST \
+               + sum(map(operator.attrgetter('halite_amount'), self.get_ships()))
 
     def get_ship(self, ship_id):
         """
@@ -183,6 +190,7 @@ class GameMap:
         self.height = height
         self._cells = cells
         self.halite = np.empty((height, width), dtype=float)
+        self.ships_map = np.zeros((height, width), dtype=float)
         for y, row in enumerate(cells):
             for x, cell in enumerate(row):
                 self.halite[y, x] = cell.halite_amount
@@ -310,7 +318,15 @@ class GameMap:
 
         return Direction.Still
 
-    def a_star_path_search(self, start: 'Position', target: 'Position', ignore_ships=True, move_penalty=10):
+    def a_star_path_search(self, start: 'Position', target: 'Position', my_id=None, move_penalty=10):
+        """
+
+        :param start:
+        :param target:
+        :param my_id: If given tiles occupied by enemy ships will have penalty as max_turn_cost / 2
+        :param move_penalty: Flat penalty for every cell to prevent long but cheap path
+        :return:
+        """
         total_halite = self.total_halite
         halite_estimated_per_cell = total_halite / self.width / self.height / constants.MOVE_COST_RATIO / 2
 
@@ -326,9 +342,23 @@ class GameMap:
 
             for direction in Direction.All:
                 next_node = self.normalize(current + direction)
-                new_cost = closed[current] + self[next_node].halite_amount / constants.MOVE_COST_RATIO + move_penalty
-                if ignore_ships is False and self[next_node].is_occupied:
-                    new_cost += constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
+                cell = self[next_node]
+                new_cost = closed[current] + cell.halite_amount / constants.MOVE_COST_RATIO + move_penalty
+                if my_id is not None:
+                    pos = cell.position.y, cell.position.x
+                    k = self.ships_map[pos]
+                    if np.isnan(k):
+                        if cell.ship and cell.ship.owner != my_id:
+                            k = self.ships_map[pos] = constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
+                        else:
+                            for d in Direction.All:
+                                cell_2 = self[cell.position + d]
+                                if cell_2.ship and cell_2.ship.owner != my_id:
+                                    k = constants.MAX_HALITE / constants.MOVE_COST_RATIO / 8
+                                    break
+                            else:
+                                k = 0
+                    new_cost += k
                 if next_node not in closed or new_cost < closed[next_node]:
                     closed[next_node] = new_cost
                     came_from[next_node] = current
@@ -382,3 +412,4 @@ class GameMap:
             for x in (cell_x, cell_x_2):
                 for y in (cell_y, cell_y_2):
                     self.halite_extended[y + half, x + half] = cell_energy
+        self.ships_map.fill(np.nan)

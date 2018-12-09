@@ -138,7 +138,7 @@ class Bot:
             for y in range(self.game.map.height):
                 self.distances[y, x] = d_map(self.game.map.distance((0, 0), (x, y)))
 
-        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
+        self.game.ready("BogdanDm_V21" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         self.stay_still_bonus = 1 + 1 / constants.MOVE_COST_RATIO

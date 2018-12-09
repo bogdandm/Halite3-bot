@@ -232,7 +232,7 @@ class Bot:
             for y in range(self.game.map.height):
                 self.distances[y, x] = d_map(self.game.map.distance((0, 0), (x, y)))
 
-        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
+        self.game.ready("BogdanDm_V25" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         if len(self.game.players) == 4:

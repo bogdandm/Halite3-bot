@@ -18,4 +18,5 @@ venv
 *.pstat
 *.db
 manager/
+benchmark/
 f-log-*.json
