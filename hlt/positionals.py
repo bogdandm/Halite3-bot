@@ -16,7 +16,8 @@ class Direction:
         (0, -1): "North",
         (0, 1): "South",
         (1, 0): "East",
-        (-1, 0): "West"
+        (-1, 0): "West",
+        (0, 0): "Still"
     }
     All = (North, South, East, West)
 

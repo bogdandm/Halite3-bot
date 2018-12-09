@@ -198,18 +198,18 @@ class Bot:
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=30,
-            stay_still_bonus=1.7,
+            stay_still_bonus=1.6,
 
             potential_gauss_sigma=6.,
             contour_k=.5,
             dropoff_threshold=.016,
             dropoff_my_ship=1,
             dropoff_enemy_ship=-0.05,
-            dropoff_my_base=-75,
+            dropoff_my_base=-80,
             dropoff_enemy_base=-3,
             dropoff_spawn_stop_turn=.8,
 
-            inspiration_bonus=1.5,
+            inspiration_bonus=1.75,
             inspiration_track_radius=16
     ):
         self.distance_penalty_k = distance_penalty_k
@@ -318,7 +318,7 @@ class Bot:
         :return: (0, 1] float
         """
         gmap = self.game.map
-        if len(self.game.players) > 2 and gmap.width <= 40 or gmap.total_halite / gmap.initial_halite <= .14:
+        if len(self.game.players) > 2 and gmap.width < 40 or gmap.total_halite / gmap.initial_halite <= .14:
             return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
         else:
             return self.ship_fill_k_base
@@ -418,6 +418,7 @@ class Bot:
         if len(players_sorted) > 2:
             ix = self.filtered_halite > (self.filtered_halite.mean() ** 2)
             self.filtered_halite[ix] = (self.filtered_halite[ix] ** 0.5) * 2
+        any_halite_remain = np.any(self.filtered_halite > 0)
 
         if len(self.game.players) == 2:
             enemy_2p = [p for p in self.game.players.values() if p is not me][0]
@@ -474,50 +475,58 @@ class Bot:
                         yield gmap.update_ship_position(ship, direction)
                         continue
 
-                self.per_ship_mask.fill(1.0)
-                for another_ship, target in self.ship_manager.targets.items():
-                    if isinstance(target, list):
-                        target = target[0]
-                    if another_ship is ship or target is None or target == home:
-                        continue
-                    self.per_ship_mask[target[1], target[0]] *= self.same_target_penalty
-                self.weighted_halite[:, :] = self.filtered_halite[:, :]
+                if any_halite_remain:
+                    self.per_ship_mask.fill(1.0)
+                    for another_ship, target in self.ship_manager.targets.items():
+                        if isinstance(target, list):
+                            target = target[0]
+                        if another_ship is ship or target is None or target == home:
+                            continue
+                        self.per_ship_mask[target[1], target[0]] *= self.same_target_penalty
+                    self.weighted_halite[:, :] = self.filtered_halite[:, :]
 
-                # Ship mask is filtered by distance
-                distances = roll2d(self.distances, *ship.position)
-                ships_mask = np.copy(self.ships_mask)
-                ix = distances > self.inspiration_track_radius
-                ships_mask[ix] = np.clip(ships_mask[ix], 0, 1)
+                    # Ship mask is filtered by distance
+                    distances = roll2d(self.distances, *ship.position)
+                    ships_mask = np.copy(self.ships_mask)
+                    ix = distances > self.inspiration_track_radius
+                    ships_mask[ix] = np.clip(ships_mask[ix], 0, 1)
 
-                # Apply masks
-                self.weighted_halite *= ships_mask
-                self.weighted_halite *= self.per_ship_mask
-                self.weighted_halite /= (distances + 1) ** self.distance_penalty_k
-                # self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
-                self.weighted_halite[ship.position.y, ship.position.x] *= self.stay_still_bonus
+                    # Apply masks
+                    self.weighted_halite *= ships_mask
+                    self.weighted_halite *= self.per_ship_mask
+                    self.weighted_halite /= (distances + 1) ** self.distance_penalty_k
+                    # self.weighted_halite[ship.position.y, ship.position.x] /= ship_collecting_halite_coefficient(ship, gmap)
+                    self.weighted_halite[ship.position.y, ship.position.x] *= self.stay_still_bonus
 
-                if self.callbacks:
-                    self.debug_maps[ship.id] = self.weighted_halite.copy()
+                    if self.callbacks:
+                        self.debug_maps[ship.id] = self.weighted_halite.copy()
 
-                # Found max point
-                y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
-                max_halite = self.weighted_halite[y, x]
-                if max_halite > 0:
-                    target = Position(x, y)
-                    if target is dropoff_position:
-                        continue
-                    if target == ship.position:
-                        logging.info(f"Ship#{ship.id} collecting halite")
+                    # Found max point
+                    y, x = np.unravel_index(self.weighted_halite.argmax(), self.weighted_halite.shape)
+                    max_halite = self.weighted_halite[y, x]
+                    if max_halite > 0:
+                        target = Position(x, y)
+                        if target is dropoff_position:
+                            continue
+                        if target == ship.position:
+                            logging.info(f"Ship#{ship.id} collecting halite")
+                            self.ship_manager.add_target(ship, None)
+                            yield ship.stay_still()
+                        else:
+                            logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
+                            self.ship_manager.add_target(ship, target)
+                            moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
+                    else:
+                        logging.info(f"Ship#{ship.id} does not found good halite deposit")
                         self.ship_manager.add_target(ship, None)
                         yield ship.stay_still()
-                    else:
-                        logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
-                        self.ship_manager.add_target(ship, target)
-                        moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
                 else:
-                    logging.info(f"Ship#{ship.id} does not found good halite deposit")
                     self.ship_manager.add_target(ship, None)
-                    yield ship.stay_still()
+                    choices = list(Direction.All) + [Direction.Still]
+                    moves[ship] = choices[np.random.choice(
+                        range(len(choices)),
+                        p=[1 / 14, 1 / 14, 1 / 14, 1 / 14, 10 / 14]
+                    )],
 
         moves: List[Tuple[Ship, Iterable[Tuple[int, int]]]] = list(moves.items())
         yield from self.ship_manager.resolve_moves(moves)
