@@ -205,9 +205,9 @@ class Bot:
             dropoff_threshold=.016,
             dropoff_my_ship=1,
             dropoff_enemy_ship=-0.05,
-            dropoff_my_base=-80,
+            dropoff_my_base=-85,
             dropoff_enemy_base=-3,
-            dropoff_spawn_stop_turn=.8,
+            dropoff_spawn_stop_turn=.75,
 
             inspiration_bonus=1.75,
             inspiration_track_radius=16
@@ -358,10 +358,13 @@ class Bot:
                     yield dropoff_ship.stay_still()
             else:
                 # Move to new dropoff position
-                self.ship_manager.add_target(dropoff_ship, dropoff_position)
-                logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
-                path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
-                moves[dropoff_ship] = (gmap.normalize_direction(path[0] - dropoff_ship.position),)
+                if gmap[dropoff_ship].halite_amount / constants.MOVE_COST_RATIO > dropoff_ship.halite_amount:
+                    yield dropoff_ship.stay_still()
+                else:
+                    self.ship_manager.add_target(dropoff_ship, dropoff_position)
+                    logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
+                    path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
+                    moves[dropoff_ship] = (gmap.normalize_direction(path[0] - dropoff_ship.position),)
 
         # Ships mask
         # Contains:
@@ -641,22 +644,27 @@ class Bot:
             return True
         if self.game.turn_number + 3 < constants.MAX_TURNS - self.game.map.width:
             return False
+
         me = self.game.me
         gmap = self.game.map
-        distances = [gmap.distance(ship.position, me.shipyard.position)
-                     for ship in me.get_ships()]
+        bases = {me.shipyard.position, *(base.position for base in me.get_dropoffs())}
+
+        distances = [
+            min(gmap.distance(base, ship.position) for base in bases)
+            for ship in me.get_ships()
+        ]
         distances = sorted(distances)
+
         if not distances:
             return False
         if constants.MAX_TURNS - self.game.turn_number - 5 <= distances[-1]:
             self.collect_ships_stage_started = True
             return True
 
-    def get_ship_parking_spot(self, ship: 'Ship'):
+    def get_ship_parking_spot(self, ship: 'Ship', base: Position) -> Position:
         gmap = self.game.map
-        home = self.game.me.shipyard.position
         s = gmap.width // 2
-        x, y = gmap.normalize(ship.position - home + (s, s))
+        x, y = gmap.normalize(ship.position - base + (s, s))
         if 0 <= x < s:
             hor = 0
         elif x == s:
@@ -671,7 +679,7 @@ class Bot:
         else:
             vert = 1
 
-        return {
+        return base + {
             (0, 0): (0, -1),
             (1, 0): (1, 0),
             (1, 1): (0, 1),
@@ -682,27 +690,29 @@ class Bot:
         gmap = self.game.map
         me = self.game.me
         enemy: Player = choice([p for p in self.game.players.values() if p is not me])
-        home = me.shipyard.position
+        bases = {me.shipyard.position, *(base.position for base in me.get_dropoffs())}
 
-        collect_points = [home + d for d in Direction.All]
+        collect_points = {base + d for d in Direction.All for base in bases} | bases
         moves = []
         for i, ship in enumerate(me.get_ships()):
             if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
                 yield ship.stay_still()
                 continue
-            if ship.position not in collect_points and ship.position != home:
-                direction = self.get_ship_parking_spot(ship)
-                point = home + direction
-                ship_moves = list(gmap.get_unsafe_moves(ship.position, point))
+
+            nearest_base = min(bases, key=lambda base: gmap.distance(base, ship.position))
+            if ship.position not in collect_points:
                 if ship.halite_amount < 20:
                     ship_moves = list(gmap.get_unsafe_moves(
                         ship.position,
                         enemy.shipyard.position + Direction.All[i % 4]
                     ))
-                shuffle(ship_moves)
+                    shuffle(ship_moves)
+                else:
+                    point = self.get_ship_parking_spot(ship, nearest_base)
+                    ship_moves = list(gmap.get_unsafe_moves(ship.position, point))
                 moves.append((ship, ship_moves))
             else:
-                direction = next(gmap.get_unsafe_moves(ship.position, home), None)
+                direction = next(gmap.get_unsafe_moves(ship.position, nearest_base), None)
                 if direction:
                     yield gmap.update_ship_position(ship, direction)
                 else:
