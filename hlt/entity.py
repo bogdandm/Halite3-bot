@@ -108,10 +108,10 @@ class Ship(Entity):
             return ship_id, new_ship
 
     @classmethod
-    def _mark_destroyed(cls, exists_ids: Iterable[int]):
+    def _mark_destroyed(cls, exists_ids: Iterable[int], player_id: int):
         exists_ids = set(exists_ids)
         for shid, ship in cls.__ships.items():
-            if shid not in exists_ids:
+            if ship.owner == player_id and shid not in exists_ids:
                 ship.exists = False
 
     def __repr__(self):

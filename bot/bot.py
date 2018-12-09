@@ -189,25 +189,25 @@ class ShipManager:
 class Bot:
     def __init__(
             self,
-            distance_penalty_k=1.3,
-            ship_fill_k=.9,
+            distance_penalty_k=1.1,
+            ship_fill_k=.95,
             ship_limit=60,
             ship_spawn_stop_turn=.5,
-            dropoff_spawn_stop_turn=.7,
             enemy_ship_penalty=0.25,
-            same_target_penalty=.25,
+            same_target_penalty=0.25,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=30,
-            stay_still_bonus=1.6,
+            stay_still_bonus=1.7,
 
             potential_gauss_sigma=6.,
             contour_k=.5,
-            dropoff_threshold=.015,
+            dropoff_threshold=.016,
             dropoff_my_ship=1,
             dropoff_enemy_ship=-0.05,
             dropoff_my_base=-75,
             dropoff_enemy_base=-3,
+            dropoff_spawn_stop_turn=.8,
 
             inspiration_bonus=3,
             inspiration_track_radius=16
@@ -318,10 +318,10 @@ class Bot:
         :return: (0, 1] float
         """
         gmap = self.game.map
-        if (len(self.game.players) == 2 or gmap.width > 40) and gmap.total_halite / gmap.initial_halite > .10:
-            return self.ship_fill_k_base
-        else:
+        if len(self.game.players) > 2 and gmap.width <= 40 or gmap.total_halite / gmap.initial_halite > .14:
             return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
+        else:
+            return self.ship_fill_k_base
 
     def loop(self):
         me = self.game.me
@@ -345,9 +345,11 @@ class Bot:
                 self.building_dropoff = None
 
         if dropoff_ship is not None and dropoff_position is not None:
+            self.building_dropoff = dropoff_position, dropoff_ship
             if dropoff_ship.position == dropoff_position:
                 # If ship in place wait until we have enough halite to build dropoff
-                if me.halite_amount + dropoff_ship.halite_amount > constants.DROPOFF_COST:
+                if me.halite_amount + dropoff_ship.halite_amount + gmap[dropoff_position].halite_amount \
+                        > constants.DROPOFF_COST + 10:
                     yield dropoff_ship.make_dropoff()
                     me.halite_amount -= constants.DROPOFF_COST - dropoff_ship.halite_amount
                     logging.info(f"Building dropoff {dropoff_position} from Ship#{dropoff_ship.id}")
@@ -357,7 +359,6 @@ class Bot:
             else:
                 # Move to new dropoff position
                 self.ship_manager.add_target(dropoff_ship, dropoff_position)
-                self.building_dropoff = dropoff_position, dropoff_ship
                 logging.info(f"Ship#{dropoff_ship.id} moving to dropoff position {dropoff_position}")
                 path = gmap.a_star_path_search(dropoff_ship.position, dropoff_position)
                 moves[dropoff_ship] = (gmap.normalize_direction(path[0] - dropoff_ship.position),)
@@ -524,14 +525,18 @@ class Bot:
         # Max ships: base at 32 map size, 2*base at 64 map size
         shipyard_cell = gmap[me.shipyard]
         if (
-                (self.building_dropoff is None and me.halite_amount >= constants.SHIP_COST
-                 or self.building_dropoff is not None and all(self.building_dropoff)
-                 and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST)
+                (
+                        self.building_dropoff is None
+                        and me.halite_amount >= constants.SHIP_COST
+                        or
+                        self.building_dropoff is not None and all(self.building_dropoff)
+                        and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST
+                )
                 and self.max_ships_reached <= 3
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
-                    total_halite / gmap.initial_halite >= .25
+                    total_halite / gmap.initial_halite >= .30
                     and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                     or
                     total_halite / gmap.initial_halite >= .57

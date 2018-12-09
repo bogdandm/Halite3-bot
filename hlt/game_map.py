@@ -89,7 +89,7 @@ class Player:
         """
         self.halite_amount = halite
         self._ships = {id: ship for (id, ship) in [Ship._generate(self.id) for _ in range(num_ships)]}
-        Ship._mark_destroyed(self._ships.keys())
+        Ship._mark_destroyed(self._ships.keys(), self.id)
         self._dropoffs = {id: dropoff for (id, dropoff) in [Dropoff._generate(self.id) for _ in range(num_dropoffs)]}
 
 
