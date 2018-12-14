@@ -191,14 +191,14 @@ class Bot:
             self,
             distance_penalty_k=1.1,
             ship_fill_k=.95,
-            ship_limit=60,
             ship_spawn_stop_turn=.5,
             enemy_ship_penalty=0.25,
             same_target_penalty=0.25,
             turn_time_warning=1.8,
             ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=30,
-            stay_still_bonus=1.6,
+            stay_still_bonus=1.8,
+            cluster_penalty=0.8,
 
             potential_gauss_sigma=6.,
             contour_k=.5,
@@ -206,16 +206,14 @@ class Bot:
             dropoff_my_ship=1,
             dropoff_enemy_ship=-0.05,
             dropoff_my_base=-85,
-            dropoff_enemy_base=-3,
-            dropoff_spawn_stop_turn=.75,
+            dropoff_enemy_base=-10,
+            dropoff_spawn_stop_turn=.80,
 
             inspiration_bonus=1.75,
-            inspiration_track_radius=16
+            inspiration_track_radius=20
     ):
         self.distance_penalty_k = distance_penalty_k
         self.ship_fill_k_base = ship_fill_k
-        self.ship_limit_base = ship_limit
-        self.ship_limit = self.ship_limit_base
         self.ship_turns_stop = ship_spawn_stop_turn
         self.dropoff_spawn_stop_turn = dropoff_spawn_stop_turn
         self.enemy_ship_penalty = enemy_ship_penalty
@@ -226,6 +224,7 @@ class Bot:
         self.ship_limit_scaling = ship_limit_scaling
         self.halite_threshold = halite_threshold
         self.stay_still_bonus = stay_still_bonus
+        self.cluster_penalty = cluster_penalty
 
         self.potential_gauss_sigma = potential_gauss_sigma
         self.contour_k = contour_k
@@ -238,8 +237,7 @@ class Bot:
         self.game = Game()
         self.ship_manager = ShipManager(self.game)
         self.building_dropoff: Optional[Tuple[Position, Ship]] = None
-        self.ships_to_home: Set[int] = set()
-        self.max_ships_reached = 0
+        self.ships_to_home: Set[Ship] = set()
         self.collect_ships_stage_started = False
         self.fast_mode = False
 
@@ -248,6 +246,7 @@ class Bot:
 
         map_creator = lambda: np.empty(shape=(self.game.map.height, self.game.map.width), dtype=float)
         self.ships_mask = map_creator()
+        self.own_ships_mask = map_creator()
         self.filtered_halite = map_creator()
         self.weighted_halite = map_creator()
         self.per_ship_mask = map_creator()
@@ -270,10 +269,6 @@ class Bot:
                 elif d == 1:
                     self.inspiration_mask[y, x] = -50.0
         self.inspiration_mask = roll2d(self.inspiration_mask, -r, -r)
-
-        self.ship_limit = round(
-            self.ship_limit_base * (1 + (self.game.map.width - 32) / (64 - 32) * self.ship_limit_scaling)
-        )
 
         # Fill distances matrix
         for x in range(self.game.map.width):
@@ -318,14 +313,15 @@ class Bot:
         :return: (0, 1] float
         """
         gmap = self.game.map
-        if len(self.game.players) > 2 and gmap.width < 40 or gmap.total_halite / gmap.initial_halite <= .14:
-            return self.ship_fill_k_base * max(2 / 3, min(1, (1 - self.game.turn_number / constants.MAX_TURNS) * 2))
+        k = (1 - (gmap.height - 32) / 32) * 0.6 + 1  # [32, 64] -> [1.6, 1]
+        threshold = .14 * k
+        if gmap.total_halite / gmap.initial_halite <= threshold:
+            return self.ship_fill_k_base * .57
         else:
             return self.ship_fill_k_base
 
     def loop(self):
         me = self.game.me
-        my_ships = me.get_ships()
         gmap = self.game.map
         total_halite = gmap.total_halite
         home = self.game.me.shipyard.position
@@ -402,6 +398,18 @@ class Bot:
         if self.callbacks:
             self.debug_maps["ships_mask"] = self.ships_mask
 
+        self.own_ships_mask.fill(1.0)
+        for ship in me.get_ships():
+            self.own_ships_mask[ship.position.y, ship.position.x] = 0
+        gaussian_filter(self.own_ships_mask, sigma=4, truncate=2.0, mode='wrap', output=self.own_ships_mask)
+        own_ships_mask_min, own_ships_mask_max = self.own_ships_mask.min(), self.own_ships_mask.max()
+        self.own_ships_mask -= own_ships_mask_min
+        self.own_ships_mask /= own_ships_mask_max - own_ships_mask_min
+        self.own_ships_mask *= 1 - self.cluster_penalty
+        self.own_ships_mask += self.cluster_penalty
+        if self.callbacks:
+            self.debug_maps["own_ships_mask"] = self.own_ships_mask
+
         # If we have time - apply blurred mask
         if not self.fast_mode:
             gaussian_filter(gmap.halite, sigma=2, truncate=2.0, mode='wrap', output=self.blurred_halite)
@@ -411,7 +419,6 @@ class Bot:
                 self.blurred_halite /= gbh_max - gbh_min
             if self.callbacks:
                 self.debug_maps["gbh_norm"] = self.blurred_halite
-            self.filtered_halite *= self.blurred_halite / 2 + .5
 
         # Filter halite:
         # * reduce halite spikes after ships collide
@@ -422,6 +429,9 @@ class Bot:
             ix = self.filtered_halite > (self.filtered_halite.mean() ** 2)
             self.filtered_halite[ix] = (self.filtered_halite[ix] ** 0.5) * 2
         any_halite_remain = np.any(self.filtered_halite > 0)
+
+        self.filtered_halite *= self.blurred_halite / 2 + .5
+        self.filtered_halite *= self.own_ships_mask
 
         if len(self.game.players) == 2:
             enemy_2p = [p for p in self.game.players.values() if p is not me][0]
@@ -544,7 +554,6 @@ class Bot:
                         self.building_dropoff is not None and all(self.building_dropoff)
                         and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST
                 )
-                and self.max_ships_reached <= 3
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
@@ -554,16 +563,14 @@ class Bot:
                     total_halite / gmap.initial_halite >= .57
                     and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 1.5)
             ):
-                if len(my_ships) < self.ship_limit:
-                    yield me.shipyard.spawn()
-                else:
-                    self.max_ships_reached += 1
+                yield me.shipyard.spawn()
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
         MIN_HALITE_PER_REGION = 16000
 
         gmap = self.game.map
+        me = self.game.me
         bases = {self.game.me.shipyard.position, *(base.position for base in self.game.me.get_dropoffs())}
         halite_ex = gmap.halite_extended.copy()
         h, w, d = gmap.height, gmap.width, 2
@@ -575,8 +582,22 @@ class Bot:
         halite_ex[0:2 * h, -d:] = 0
         halite_ex_gb = gaussian_filter(halite_ex, sigma=GAUSS_SIGMA, truncate=2.0, mode='wrap')
 
+        halite_ex_gb_filtered = halite_ex_gb.copy()
+        offset = h // 2
+        mask = np.zeros(halite_ex_gb_filtered.shape, dtype=int)
+        r = 10
+        for ship in me.get_ships():
+            x, y = ship.position
+            mask = roll2d(mask, r + 1 - x - offset, r + 1 - y - offset)
+            mask[:2 * r + 1, :2 * r + 1] += 1
+            mask = roll2d(mask, x + offset - r - 1, y + offset - r - 1)
+        np.clip(mask, 0, 1, out=mask)
+        halite_ex_gb_filtered *= mask
+        if self.callbacks:
+            self.debug_maps["halite_ex_gb_filtered"] = halite_ex_gb_filtered[offset:3 * offset, offset:3 * offset]
+
         # Find contours of high halite deposits
-        contours = msr.find_contours(halite_ex_gb, halite_ex_gb.max() * self.contour_k, fully_connected="high")
+        contours = msr.find_contours(halite_ex_gb, halite_ex_gb_filtered.max() * self.contour_k, fully_connected="high")
         masks = [poly2mask(c[:, 0], c[:, 1], halite_ex.shape) for c in contours]
 
         # Remove small halite chunks

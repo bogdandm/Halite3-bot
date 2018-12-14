@@ -44,8 +44,6 @@ class Plotter:
         "dropoff",
         "dropoff_2",
         "ships_mask",
-        "halite_ex_gb_filtered",
-        "own_ships_mask"
     ]
 
     def __init__(self, bot: 'Bot'):
@@ -228,8 +226,7 @@ class Plotter:
                     code = 9
                 else:
                     code -= 1
-                if code < len(self.VIEWS):
-                    self.current_view = self.VIEWS[code]
+                self.current_view = self.VIEWS[code]
 
     def mouse_handler(self, e):
         map_pos = tuple(map(int, mul_tuple(e.pos, 1 / CELL_SIZE)))
