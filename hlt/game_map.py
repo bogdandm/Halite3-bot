@@ -194,6 +194,7 @@ class GameMap:
         for y, row in enumerate(cells):
             for x, cell in enumerate(row):
                 self.halite[y, x] = cell.halite_amount
+        self._total_halite_cache = None
         self.initial_halite = self.total_halite
         self.halite_extended = extend_grid(self.halite)
 
@@ -225,7 +226,9 @@ class GameMap:
 
     @property
     def total_halite(self):
-        return self.halite.sum()
+        if self._total_halite_cache is None:
+            self._total_halite_cache = self.halite.sum()
+        return self._total_halite_cache
 
     @memoized_method
     def distance(self, source: Position, target: Position):
@@ -413,3 +416,4 @@ class GameMap:
                 for y in (cell_y, cell_y_2):
                     self.halite_extended[y + half, x + half] = cell_energy
         self.ships_map.fill(np.nan)
+        self._total_halite_cache = None

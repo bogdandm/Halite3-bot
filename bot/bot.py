@@ -258,13 +258,14 @@ class Bot:
         # Create enemy ship mask (filled with discrete values: -1000, -50, 0, 1)
         # After masks overlapped it creates 3 ranges: -1000 ... -900 ... (0) 1 2
         # Zero will be replaced by 1.0
+        inspiration_mask_recreated = False
         self.inspiration_mask.fill(0.0)
         r = 4
         self.inspiration_mask[r, r] = -1000.0
         for y in range(r * 2 + 1):
             for x in range(r * 2 + 1):
                 d = abs(x - r) + abs(y - r)
-                if 1 < d <= 4:
+                if 1 < d <= r:
                     self.inspiration_mask[y, x] = 1.0
                 elif d == 1:
                     self.inspiration_mask[y, x] = -50.0
@@ -285,6 +286,18 @@ class Bot:
             time1 = time.time()
             self.game.update_frame()
             self.ship_manager.update()
+
+            if not inspiration_mask_recreated and self.game.map.total_halite / self.game.map.initial_halite < .25:
+                self.inspiration_mask.fill(0.0)
+                for y in range(r * 2 + 1):
+                    for x in range(r * 2 + 1):
+                        d = abs(x - r) + abs(y - r)
+                        if 2 < d <= r:
+                            self.inspiration_mask[y, x] = 1.0
+                        elif d < r:
+                            self.inspiration_mask[y, x] = -1000.0
+                self.inspiration_mask = roll2d(self.inspiration_mask, -r, -r)
+                inspiration_mask_recreated = True
 
             commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
             self.game.end_turn(commands)
@@ -567,7 +580,7 @@ class Bot:
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
-        MIN_HALITE_PER_REGION = 16000
+        MIN_HALITE_PER_REGION = 24000
 
         gmap = self.game.map
         me = self.game.me
