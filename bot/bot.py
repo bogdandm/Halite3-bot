@@ -552,7 +552,7 @@ class Bot:
                             yield ship.stay_still()
                         else:
                             dist = gmap.distance(ship.position, target)
-                            if dist == 1:
+                            if n_players > 2 and dist == 1:
                                 for d in Direction.All:
                                     enemy_pos = gmap[target + d]
                                     if enemy_pos.ship and enemy_pos.ship.owner != me.id:
