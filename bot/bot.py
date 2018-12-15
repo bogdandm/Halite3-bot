@@ -284,9 +284,6 @@ class Bot:
         self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
-        # if len(self.game.players) == 4:
-        #     self.ship_limit //= 1.2
-
         while True:
             time1 = time.time()
             self.game.update_frame()
@@ -351,6 +348,7 @@ class Bot:
         me = self.game.me
         gmap = self.game.map
         total_halite = gmap.total_halite
+        n_players = len(self.game.players)
         home = self.game.me.shipyard.position
         moves: Dict[Ship, Iterable[Tuple[int, int]]] = {}
         bases = {home, *(base.position for base in me.get_dropoffs())}
@@ -403,7 +401,7 @@ class Bot:
                                                           reverse=True)
         my_halite = players_halite[me]
         top_player_warning = players_sorted[0][0] is not me and players_sorted[0][1] - my_halite > 5000
-        enable_inspiration = len(players_sorted) > 2
+        enable_inspiration = n_players > 2
         for i, (player, _) in enumerate(players_sorted):
             if player is me:
                 continue
@@ -460,12 +458,12 @@ class Bot:
         self.filtered_halite *= self.blurred_halite * self.blurred_halite_effect + 1 - self.blurred_halite_effect
         self.filtered_halite *= self.own_ships_mask
 
-        if len(self.game.players) == 2:
+        if n_players == 2:
             enemy_2p = [p for p in self.game.players.values() if p is not me][0]
-            ram_enabled = len(me.get_ships()) > len(enemy_2p.get_ships()) + 10
+            ram_enabled = len(me.get_ships()) > len(enemy_2p.get_ships()) + 10 \
+                          or total_halite / gmap.initial_halite <= self.ship_fill_k_reduced_after
         else:
             ram_enabled = False
-        ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= self.ship_fill_k_reduced_after
 
         # Generate moves for ships from masks and halite field
         for ship in reversed(self.ship_manager.ships):
@@ -499,7 +497,7 @@ class Bot:
                 if ram_enabled:
                     # Ram enemy ship with a lot of halite
                     # In 2P players game we do not need to have friendly ship near by
-                    friend_found = len(self.game.players) > 2
+                    friend_found = n_players > 2
                     target = None
                     for direction in Direction.All:
                         other_ship = gmap[ship.position + direction].ship
