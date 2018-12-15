@@ -11,7 +11,7 @@ params:
       same_target_penalty: 0.25
       turn_time_warning: 1.8
       halite_threshold: 30
-      stay_still_bonus: 1.7
+      stay_still_bonus: 1.8
       cluster_penalty: 0.8
       blurred_halite_effect: 0.5
 
@@ -45,11 +45,10 @@ params:
   - map_sizes:
       - 32
     kwargs:
+      ship_fill_k_reduced_after: 0.22
       blurred_halite_effect: 0.20
       dropoff_my_base: -60
       dropoff_my_ship: 1.5
-      inspiration_bonus: 2.75
-      inspiration_track_radius: 8
 
   # 40
   - map_sizes:
@@ -58,16 +57,12 @@ params:
       blurred_halite_effect: 0.25
       dropoff_my_base: -70
       dropoff_my_ship: 1.5
-      inspiration_bonus: 2.5
-      inspiration_track_radius: 12
 
   # 48
   - map_sizes:
       - 48
     kwargs:
       blurred_halite_effect: 0.38
-      inspiration_bonus: 2
-      inspiration_track_radius: 16
 
   # 32, 40 & 4P
   - map_sizes:
@@ -78,7 +73,7 @@ params:
     kwargs:
       ships_produce:
         - turn: 0.45
-          halite: 0.35
+          halite: 0.30
         - turn: 0.60
           halite: 0.60
 
