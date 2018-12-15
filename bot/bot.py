@@ -3,11 +3,13 @@ import logging
 import operator
 import time
 from itertools import combinations
+from pathlib import Path
 from random import choice, shuffle
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import skimage.measure as msr
+import yaml
 from scipy.ndimage import gaussian_filter
 from skimage import draw
 
@@ -18,6 +20,8 @@ from .const import FLOG, LOCAL, V2
 
 np.seterrcall(lambda type, flag: logging.error("Floating point error ({}), with flag {}".format(type, flag)))
 np.seterr(all='call')
+
+PATH: Path = Path(__file__).parent.parent.absolute().resolve()
 
 
 def ship_collecting_halite_coefficient(ship, gmap):
@@ -187,57 +191,15 @@ class ShipManager:
 
 
 class Bot:
-    def __init__(
-            self,
-            distance_penalty_k=1.1,
-            ship_fill_k=.95,
-            ship_spawn_stop_turn=.5,
-            enemy_ship_penalty=0.25,
-            same_target_penalty=0.25,
-            turn_time_warning=1.8,
-            halite_threshold=30,
-            stay_still_bonus=1.8,
-            cluster_penalty=0.8,
-
-            potential_gauss_sigma=6.,
-            contour_k=.5,
-            dropoff_threshold=.016,
-            dropoff_my_ship=1,
-            dropoff_enemy_ship=-0.05,
-            dropoff_my_base=-85,
-            dropoff_enemy_base=-10,
-            dropoff_spawn_stop_turn=.80,
-
-            inspiration_bonus=1.75,
-            inspiration_track_radius=20
-    ):
-        self.distance_penalty_k = distance_penalty_k
-        self.ship_fill_k_base = ship_fill_k
-        self.ship_turns_stop = ship_spawn_stop_turn
-        self.dropoff_spawn_stop_turn = dropoff_spawn_stop_turn
-        self.enemy_ship_penalty = enemy_ship_penalty
-        self.inspiration_bonus = inspiration_bonus
-        self.inspiration_track_radius = inspiration_track_radius
-        self.same_target_penalty = same_target_penalty
-        self.turn_time_warning = turn_time_warning
-        self.halite_threshold = halite_threshold
-        self.stay_still_bonus = stay_still_bonus
-        self.cluster_penalty = cluster_penalty
-
-        self.potential_gauss_sigma = potential_gauss_sigma
-        self.contour_k = contour_k
-        self.dropoff_threshold = dropoff_threshold
-        self.dropoff_my_ship = dropoff_my_ship
-        self.dropoff_enemy_ship = dropoff_enemy_ship
-        self.dropoff_my_base = dropoff_my_base
-        self.dropoff_enemy_base = dropoff_enemy_base
-
+    def __init__(self):
         self.game = Game()
         self.ship_manager = ShipManager(self.game)
         self.building_dropoff: Optional[Tuple[Position, Ship]] = None
         self.ships_to_home: Set[Ship] = set()
         self.collect_ships_stage_started = False
         self.fast_mode = False
+
+        self.load_config()
 
         self.callbacks = []
         self.debug_maps = {}
@@ -252,11 +214,56 @@ class Bot:
         self.blurred_halite = map_creator()
         self.distances = np.zeros((self.game.map.width, self.game.map.height), dtype=float)
 
+    # noinspection PyAttributeOutsideInit
+    def load_config(self):
+        h = self.game.map.height
+        p = len(self.game.players)
+
+        with (PATH / "config.yaml").open() as f:
+            config = yaml.load(f.read())
+
+        config_items = [
+            item
+            for item in config["params"]
+            if (not item.get('map_sizes', None) or h in item['map_sizes'])
+               and (not item.get('players', None) or p in item['players'])
+        ]
+
+        kwargs = {}
+        for item in config_items:
+            kwargs.update(item['kwargs'])
+
+        self.distance_penalty_k = kwargs["distance_penalty_k"]
+        self.ship_fill_k_base = kwargs["ship_fill_k"]
+        self.ship_fill_k_reduced_after = kwargs["ship_fill_k_reduced_after"]
+        self.dropoff_spawn_stop_turn = kwargs["dropoff_spawn_stop_turn"]
+        self.enemy_ship_penalty = kwargs["enemy_ship_penalty"]
+        self.same_target_penalty = kwargs["same_target_penalty"]
+        self.turn_time_warning = kwargs["turn_time_warning"]
+        self.halite_threshold = kwargs["halite_threshold"]
+        self.stay_still_bonus = kwargs["stay_still_bonus"]
+        self.cluster_penalty = kwargs["cluster_penalty"]
+        self.blurred_halite_effect = kwargs["blurred_halite_effect"]
+
+        self.potential_gauss_sigma = kwargs["potential_gauss_sigma"]
+        self.contour_k = kwargs["contour_k"]
+        self.dropoff_threshold = kwargs["dropoff_threshold"]
+        self.dropoff_my_ship = kwargs["dropoff_my_ship"]
+        self.dropoff_enemy_ship = kwargs["dropoff_enemy_ship"]
+        self.dropoff_my_base = kwargs["dropoff_my_base"]
+        self.dropoff_enemy_base = kwargs["dropoff_enemy_base"]
+
+        self.inspiration_bonus = kwargs["inspiration_bonus"]
+        self.inspiration_track_radius = kwargs["inspiration_track_radius"]
+        self.inspiration_reduced = kwargs["inspiration_reduced"]
+
+        self.ships_produce_conf = kwargs["ships_produce"]
+
     def run(self):
         # Create enemy ship mask (filled with discrete values: -1000, -50, 0, 1)
         # After masks overlapped it creates 3 ranges: -1000 ... -900 ... (0) 1 2
         # Zero will be replaced by 1.0
-        inspiration_mask_recreated = len(self.game.players) > 2
+        inspiration_was_reduced = self.inspiration_reduced is None
         self.inspiration_mask.fill(0.0)
         r = 4
         self.inspiration_mask[r, r] = -1000.0
@@ -285,7 +292,8 @@ class Bot:
             self.game.update_frame()
             self.ship_manager.update()
 
-            if not inspiration_mask_recreated and self.game.map.total_halite / self.game.map.initial_halite < .25:
+            if not inspiration_was_reduced \
+                    and self.game.map.total_halite / self.game.map.initial_halite < self.inspiration_reduced:
                 self.inspiration_mask.fill(0.0)
                 self.inspiration_mask[r, r] = -1000.0
                 for y in range(r * 2 + 1):
@@ -296,7 +304,7 @@ class Bot:
                         elif 0 < d <= 2:
                             self.inspiration_mask[y, x] = -1000.0
                 self.inspiration_mask = roll2d(self.inspiration_mask, -r, -r)
-                inspiration_mask_recreated = True
+                inspiration_was_reduced = True
 
             commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
             self.game.end_turn(commands)
@@ -325,12 +333,19 @@ class Bot:
         :return: (0, 1] float
         """
         gmap = self.game.map
-        k = (1 - (gmap.height - 32) / 32) * 0.6 + 1  # [32, 64] -> [1.6, 1]
-        threshold = .14 * k  # [22.4, 14]%
-        if gmap.total_halite / gmap.initial_halite <= threshold:
-            return self.ship_fill_k_base * .57
+        if gmap.total_halite / gmap.initial_halite <= self.ship_fill_k_reduced_after:
+            return self.ship_fill_k_base * .65
         else:
             return self.ship_fill_k_base
+
+    @property
+    def ships_produce(self):
+        halite = self.game.map.total_halite / self.game.map.initial_halite
+        turn = self.game.turn_number
+        for item in self.ships_produce_conf:
+            if turn <= constants.MAX_TURNS * item["turn"] and halite >= item["halite"]:
+                return True
+        return False
 
     def loop(self):
         me = self.game.me
@@ -437,12 +452,12 @@ class Bot:
         # * remove everything that is less than self.halite_threshold
         self.filtered_halite[:, :] = gmap.halite[:, :]
         self.filtered_halite[self.filtered_halite < self.halite_threshold] = 0
-        if len(players_sorted) > 2:
-            ix = self.filtered_halite > (self.filtered_halite.mean() ** 1.75)
-            self.filtered_halite[ix] = 2 * self.filtered_halite[ix] ** 0.5
+        # if len(players_sorted) > 2:
+        #     ix = self.filtered_halite > (self.filtered_halite.mean() ** 2)
+        #     self.filtered_halite[ix] = 2 * self.filtered_halite[ix] ** 0.5
         any_halite_remain = np.any(self.filtered_halite > 0)
 
-        self.filtered_halite *= self.blurred_halite / 2 + .5
+        self.filtered_halite *= self.blurred_halite * self.blurred_halite_effect + 1 - self.blurred_halite_effect
         self.filtered_halite *= self.own_ships_mask
 
         if len(self.game.players) == 2:
@@ -450,7 +465,7 @@ class Bot:
             ram_enabled = len(me.get_ships()) > len(enemy_2p.get_ships()) + 10
         else:
             ram_enabled = False
-        ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= 0.13
+        ram_enabled = ram_enabled or total_halite / gmap.initial_halite <= self.ship_fill_k_reduced_after
 
         # Generate moves for ships from masks and halite field
         for ship in reversed(self.ship_manager.ships):
@@ -583,16 +598,9 @@ class Bot:
                         and me.halite_amount >= constants.SHIP_COST + constants.DROPOFF_COST
                 )
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
+                and self.ships_produce
         ):
-            if (
-                    # While x% of halite remains
-                    total_halite / gmap.initial_halite >= .30
-                    and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
-                    or
-                    total_halite / gmap.initial_halite >= .57
-                    and self.game.turn_number <= constants.MAX_TURNS * (1 - (1 - self.ship_turns_stop) / 1.5)
-            ):
-                yield me.shipyard.spawn()
+            yield me.shipyard.spawn()
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.

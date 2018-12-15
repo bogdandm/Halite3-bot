@@ -1,0 +1,101 @@
+params:
+  - map_sizes:
+    players:
+    kwargs:
+      distance_penalty_k: 1.1
+
+      ship_fill_k: 0.95
+      ship_fill_k_reduced_after: 0.01
+
+      enemy_ship_penalty: 0.25
+      same_target_penalty: 0.25
+      turn_time_warning: 1.8
+      halite_threshold: 30
+      stay_still_bonus: 1.8
+      cluster_penalty: 0.8
+      blurred_halite_effect: 0.5
+
+      potential_gauss_sigma: 6.0
+      contour_k: 0.5
+      dropoff_threshold: 0.016
+      dropoff_my_ship: 1
+      dropoff_enemy_ship: -0.05
+      dropoff_my_base: -85
+      dropoff_enemy_base: -10
+      dropoff_spawn_stop_turn: 0.80
+
+      inspiration_bonus: 1.75
+      inspiration_track_radius: 20
+      inspiration_reduced: Null
+
+      ships_produce:
+        - turn: 0.5
+          halite: 0.30
+        - turn: 0.66
+          halite: 0.57
+
+  # 2P
+  #  - players:
+  #      - 2
+  #    kwargs:
+
+  # 4P
+  - players:
+      - 4
+    kwargs:
+      inspiration_reduced: 0.25
+      halite_threshold: 10
+
+  # 32
+  - map_sizes:
+      - 32
+    kwargs:
+      ship_fill_k_reduced_after: 0.22
+      blurred_halite_effect: 0.20
+      dropoff_my_base: -60
+      dropoff_my_ship: 1.5
+
+  # 40
+  - map_sizes:
+      - 40
+    kwargs:
+      ship_fill_k_reduced_after: 0.20
+      blurred_halite_effect: 0.25
+      dropoff_my_base: -70
+      dropoff_my_ship: 1.5
+
+  # 48
+  - map_sizes:
+      - 48
+    kwargs:
+      ship_fill_k_reduced_after: 0.18
+      blurred_halite_effect: 0.38
+
+  # 56 & 4P
+  - map_sizes:
+      - 56
+    players:
+      - 4
+    kwargs:
+      ship_fill_k_reduced_after: 0.16
+
+  # 64 & 4P
+  - map_sizes:
+      - 64
+    players:
+      - 4
+    kwargs:
+      ship_fill_k_reduced_after: 0.14
+
+  # 32, 40 & 4P
+  - map_sizes:
+      - 32
+      - 40
+    players:
+      - 4
+    kwargs:
+      ships_produce:
+        - turn: 0.40
+          halite: 0.30
+        - turn: 0.60
+          halite: 0.60
