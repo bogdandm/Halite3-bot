@@ -195,6 +195,7 @@ class Bot:
             enemy_ship_penalty=0.25,
             same_target_penalty=0.25,
             turn_time_warning=1.8,
+            ship_limit_scaling=1.2,  # ship_limit_scaling + 1 multiplier on large map
             halite_threshold=30,
             stay_still_bonus=1.8,
             cluster_penalty=0.8,
@@ -220,6 +221,7 @@ class Bot:
         self.inspiration_track_radius = inspiration_track_radius
         self.same_target_penalty = same_target_penalty
         self.turn_time_warning = turn_time_warning
+        self.ship_limit_scaling = ship_limit_scaling
         self.halite_threshold = halite_threshold
         self.stay_still_bonus = stay_still_bonus
         self.cluster_penalty = cluster_penalty
@@ -256,14 +258,13 @@ class Bot:
         # Create enemy ship mask (filled with discrete values: -1000, -50, 0, 1)
         # After masks overlapped it creates 3 ranges: -1000 ... -900 ... (0) 1 2
         # Zero will be replaced by 1.0
-        inspiration_mask_recreated = len(self.game.players) > 2
         self.inspiration_mask.fill(0.0)
         r = 4
         self.inspiration_mask[r, r] = -1000.0
         for y in range(r * 2 + 1):
             for x in range(r * 2 + 1):
                 d = abs(x - r) + abs(y - r)
-                if 1 < d <= r:
+                if 1 < d <= 4:
                     self.inspiration_mask[y, x] = 1.0
                 elif d == 1:
                     self.inspiration_mask[y, x] = -50.0
@@ -274,7 +275,7 @@ class Bot:
             for y in range(self.game.map.height):
                 self.distances[y, x] = self.game.map.distance((0, 0), (x, y))
 
-        self.game.ready("BogdanDm" + ("_V2" if V2 else ""))
+        self.game.ready("BogdanDm_V32" + ("_V2" if V2 else ""))
         logging.info("Player ID: {}.".format(self.game.my_id))
 
         # if len(self.game.players) == 4:
@@ -284,19 +285,6 @@ class Bot:
             time1 = time.time()
             self.game.update_frame()
             self.ship_manager.update()
-
-            if not inspiration_mask_recreated and self.game.map.total_halite / self.game.map.initial_halite < .25:
-                self.inspiration_mask.fill(0.0)
-                self.inspiration_mask[r, r] = -1000.0
-                for y in range(r * 2 + 1):
-                    for x in range(r * 2 + 1):
-                        d = abs(x - r) + abs(y - r)
-                        if 2 < d <= r:
-                            self.inspiration_mask[y, x] = 1.0
-                        elif 0 < d <= 2:
-                            self.inspiration_mask[y, x] = -1000.0
-                self.inspiration_mask = roll2d(self.inspiration_mask, -r, -r)
-                inspiration_mask_recreated = True
 
             commands = self.loop() if not self.collect_ships_stage else self.collect_ships()
             self.game.end_turn(commands)
@@ -326,7 +314,7 @@ class Bot:
         """
         gmap = self.game.map
         k = (1 - (gmap.height - 32) / 32) * 0.6 + 1  # [32, 64] -> [1.6, 1]
-        threshold = .14 * k  # [22.4, 14]%
+        threshold = .14 * k
         if gmap.total_halite / gmap.initial_halite <= threshold:
             return self.ship_fill_k_base * .57
         else:
@@ -438,8 +426,8 @@ class Bot:
         self.filtered_halite[:, :] = gmap.halite[:, :]
         self.filtered_halite[self.filtered_halite < self.halite_threshold] = 0
         if len(players_sorted) > 2:
-            ix = self.filtered_halite > (self.filtered_halite.mean() ** 1.75)
-            self.filtered_halite[ix] = 2 * self.filtered_halite[ix] ** 0.5
+            ix = self.filtered_halite > (self.filtered_halite.mean() ** 2)
+            self.filtered_halite[ix] = (self.filtered_halite[ix] ** 0.5) * 2
         any_halite_remain = np.any(self.filtered_halite > 0)
 
         self.filtered_halite *= self.blurred_halite / 2 + .5
@@ -483,19 +471,17 @@ class Bot:
             else:
                 if ram_enabled:
                     # Ram enemy ship with a lot of halite
-                    # In 2P players game we do not need to have friendly ship near by
-                    friend_found = len(self.game.players) > 2
-                    target = None
                     for direction in Direction.All:
                         other_ship = gmap[ship.position + direction].ship
-                        if not other_ship:
+                        if not other_ship or other_ship.owner == me.id:
                             continue
-                        if other_ship.owner == me.id:
-                            friend_found = True
-                        elif other_ship.halite_amount / (ship.halite_amount + 1) >= 3:
-                            target = other_ship, direction
-                    if target and friend_found:
-                        other_ship, direction = target
+                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 3:
+                            target_found = True
+                            break
+                    else:
+                        target_found = False
+                    if target_found:
+                        # noinspection PyUnboundLocalVariable
                         logging.info(f"Ship#{ship.id} ramming enemy ship #{other_ship.id}"
                                      f" ({ship.halite_amount}) vs ({other_ship.halite_amount})")
                         # noinspection PyUnboundLocalVariable
@@ -540,23 +526,9 @@ class Bot:
                             self.ship_manager.add_target(ship, None)
                             yield ship.stay_still()
                         else:
-                            dist = gmap.distance(ship.position, target)
-                            if dist == 1:
-                                for d in Direction.All:
-                                    enemy_pos = gmap[target + d]
-                                    if enemy_pos.ship and enemy_pos.ship.owner != me.id:
-                                        break
-                                else:
-                                    enemy_pos = None
-                            else:
-                                enemy_pos = None
-                            if enemy_pos:
-                                logging.info(f"Ship#{ship.id}({ship.position}) is afraid of {enemy_pos.ship}")
-                                yield ship.stay_still()
-                            else:
-                                logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
-                                self.ship_manager.add_target(ship, target)
-                                moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
+                            logging.info(f"Ship#{ship.id} {ship.position} moving towards {target}")
+                            self.ship_manager.add_target(ship, target)
+                            moves[ship] = list(self.game.map.get_unsafe_moves(ship.position, target))
                     else:
                         logging.info(f"Ship#{ship.id} does not found good halite deposit")
                         self.ship_manager.add_target(ship, None)
@@ -585,7 +557,6 @@ class Bot:
                 and (shipyard_cell.ship is None or shipyard_cell.ship.owner != me.id)
         ):
             if (
-                    # While x% of halite remains
                     total_halite / gmap.initial_halite >= .30
                     and self.game.turn_number <= constants.MAX_TURNS * self.ship_turns_stop
                     or
@@ -596,7 +567,7 @@ class Bot:
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
-        MIN_HALITE_PER_REGION = 24000
+        MIN_HALITE_PER_REGION = 16000
 
         gmap = self.game.map
         me = self.game.me
