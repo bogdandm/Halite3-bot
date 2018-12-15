@@ -357,7 +357,7 @@ class GameMap:
                             for d in Direction.All:
                                 cell_2 = self[cell.position + d]
                                 if cell_2.ship and cell_2.ship.owner != my_id:
-                                    k = constants.MAX_HALITE / constants.MOVE_COST_RATIO / 8
+                                    k = constants.MAX_HALITE / constants.MOVE_COST_RATIO / 2
                                     break
                             else:
                                 k = 0

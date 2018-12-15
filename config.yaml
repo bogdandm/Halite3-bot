@@ -34,17 +34,12 @@ params:
         - turn: 0.66
           halite: 0.57
 
-  # 2P
-  #  - players:
-  #      - 2
-  #    kwargs:
-
   # 4P
   - players:
       - 4
     kwargs:
-      inspiration_reduced: 0.25
-      halite_threshold: 10
+      inspiration_reduced: 0.10
+      halite_threshold: 20
 
   # 32
   - map_sizes:
@@ -59,7 +54,6 @@ params:
   - map_sizes:
       - 40
     kwargs:
-      ship_fill_k_reduced_after: 0.20
       blurred_halite_effect: 0.25
       dropoff_my_base: -70
       dropoff_my_ship: 1.5
@@ -68,24 +62,7 @@ params:
   - map_sizes:
       - 48
     kwargs:
-      ship_fill_k_reduced_after: 0.18
       blurred_halite_effect: 0.38
-
-  # 56 & 4P
-  - map_sizes:
-      - 56
-    players:
-      - 4
-    kwargs:
-      ship_fill_k_reduced_after: 0.16
-
-  # 64 & 4P
-  - map_sizes:
-      - 64
-    players:
-      - 4
-    kwargs:
-      ship_fill_k_reduced_after: 0.14
 
   # 32, 40 & 4P
   - map_sizes:
@@ -95,7 +72,16 @@ params:
       - 4
     kwargs:
       ships_produce:
-        - turn: 0.40
+        - turn: 0.45
           halite: 0.30
         - turn: 0.60
           halite: 0.60
+
+  # 56, 64
+  - map_sizes:
+      - 56
+      - 64
+    players:
+      - 4
+    kwargs:
+      stay_still_bonus: 1.6

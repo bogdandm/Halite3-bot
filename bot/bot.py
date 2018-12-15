@@ -496,19 +496,17 @@ class Bot:
             else:
                 if ram_enabled:
                     # Ram enemy ship with a lot of halite
-                    # In 2P players game we do not need to have friendly ship near by
-                    friend_found = n_players > 2
-                    target = None
                     for direction in Direction.All:
                         other_ship = gmap[ship.position + direction].ship
-                        if not other_ship:
+                        if not other_ship or other_ship.owner == me.id:
                             continue
-                        if other_ship.owner == me.id:
-                            friend_found = True
-                        elif other_ship.halite_amount / (ship.halite_amount + 1) >= 3:
-                            target = other_ship, direction
-                    if target and friend_found:
-                        other_ship, direction = target
+                        if other_ship.halite_amount / (ship.halite_amount + 1) >= 4:
+                            target_found = True
+                            break
+                    else:
+                        target_found = False
+                    if target_found:
+                        # noinspection PyUnboundLocalVariable
                         logging.info(f"Ship#{ship.id} ramming enemy ship #{other_ship.id}"
                                      f" ({ship.halite_amount}) vs ({other_ship.halite_amount})")
                         # noinspection PyUnboundLocalVariable
@@ -602,7 +600,7 @@ class Bot:
 
     def dropoff_builder(self) -> Tuple[Optional[Position], Optional[Ship]]:
         GAUSS_SIGMA = 2.
-        MIN_HALITE_PER_REGION = 24000
+        MIN_HALITE_PER_REGION = 32000
 
         gmap = self.game.map
         me = self.game.me
@@ -748,7 +746,7 @@ class Bot:
         enemy: Player = choice([p for p in self.game.players.values() if p is not me])
         bases = {me.shipyard.position, *(base.position for base in me.get_dropoffs())}
 
-        collect_points = {base + d for d in Direction.All for base in bases} | bases
+        collect_points = {gmap.normalize(base + d) for d in Direction.All for base in bases} | bases
         moves = []
         for i, ship in enumerate(me.get_ships()):
             if gmap[ship].halite_amount / constants.MOVE_COST_RATIO > ship.halite_amount:
