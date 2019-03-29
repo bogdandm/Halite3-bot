@@ -1,3 +1,10 @@
+"""
+Analyze "replays" folder and print out games summary for each player name per players number and map size
+Uses score system:
+2P - 2 point 1st place, -1 point - 2nd place
+4P - 2, 1, 0, -1 points for 1st, 2nd, 3d, 4th places respectively
+"""
+
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -6,7 +13,7 @@ import pandas as pd
 import tqdm
 import zstandard
 
-PATH: Path = Path(__file__).parent.absolute().resolve() / "manager"
+PATH: Path = Path(__file__).parent.absolute().resolve()
 d = zstandard.ZstdDecompressor()
 
 players = defaultdict(lambda: {
