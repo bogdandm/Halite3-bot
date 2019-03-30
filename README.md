@@ -5,7 +5,8 @@
 ![Main image](/images/1.gif)
 
 Данный бот создан в ходе соревнования [Halite3](https://2018.halite.io/learn-programming-challenge/game-overview)
-и занял [72 место (bogdandm)](https://2018.halite.io/user/?user_id=3020). 
+и занял [72 место (bogdandm)](https://2018.halite.io/user/?user_id=3020) 
+(и 34 на момент, когда я бросил совернование в виду нехватки времени). 
 Это было мое первое соревнование такого рода, 
 которое дало возможность узнать массу новых приемов оптимизации и алгоритмов.
 
