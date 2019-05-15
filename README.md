@@ -1,5 +1,3 @@
-*Work in progress...*
-
 # Halite 3 bot
 
 ![Main image](/images/1.gif)
